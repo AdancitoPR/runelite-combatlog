@@ -14,38 +14,54 @@ public class CombatLogTest
 	@Test
 	public void recordsOwnDamageAndIgnoresOtherSplats()
 	{
-		HitRecord hit = HitCapture.capture(HitsplatID.DAMAGE_ME, 28, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L);
+		HitRecord hit = HitCapture.capture(HitsplatID.DAMAGE_ME, 28, "Hill Giant", TargetKind.NPC, 72, 11, null, false, true, true, 1_000L);
 		assertEquals("Hill Giant", hit.getTargetName());
+		assertEquals(Integer.valueOf(72), hit.getNpcId());
+		assertEquals(Integer.valueOf(11), hit.getNpcIndex());
 		assertEquals(HitKind.HIT, hit.getKind());
 		assertEquals(28, hit.getAmount());
 		assertNull(hit.getTint());
 
-		assertNull(HitCapture.capture(HitsplatID.DAMAGE_OTHER, 12, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L));
-		assertNull(HitCapture.capture(HitsplatID.POISON, 4, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L));
-		assertNull(HitCapture.capture(HitsplatID.VENOM, 6, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L));
-		assertNull(HitCapture.capture(HitsplatID.BURN, 8, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L));
-		assertNull(HitCapture.capture(HitsplatID.BLEED, 3, "Hill Giant", TargetKind.NPC, false, true, true, 1_000L));
-		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Hill Giant", TargetKind.NPC, true, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_OTHER, 12, "Hill Giant", TargetKind.NPC, null, null, null, false, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.POISON, 4, "Hill Giant", TargetKind.NPC, null, null, null, false, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.VENOM, 6, "Hill Giant", TargetKind.NPC, null, null, null, false, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.BURN, 8, "Hill Giant", TargetKind.NPC, null, null, null, false, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.BLEED, 3, "Hill Giant", TargetKind.NPC, null, null, null, false, true, true, 1_000L));
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Hill Giant", TargetKind.NPC, null, null, null, true, true, true, 1_000L));
 	}
 
 	@Test
 	public void classifiesMaxHitsTintsAndBlocks()
 	{
-		HitRecord max = HitCapture.capture(HitsplatID.DAMAGE_MAX_ME_YELLOW, 42, "Tekton", TargetKind.NPC, false, true, true, 5_000L);
+		HitRecord max = HitCapture.capture(HitsplatID.DAMAGE_MAX_ME_YELLOW, 42, "Tekton", TargetKind.NPC, null, null, null, false, true, true, 5_000L);
 		assertEquals(HitKind.MAX_HIT, max.getKind());
 		assertEquals("Yellow", max.getTint());
 		assertEquals("Max hit (Yellow) on Tekton for 42", max.describe());
 
-		HitRecord block = HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, false, true, true, 5_000L);
+		HitRecord block = HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, null, null, null, false, true, true, 5_000L);
 		assertEquals(HitKind.BLOCK, block.getKind());
-		assertNull(HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, false, false, true, 5_000L));
+		assertNull(HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, null, null, null, false, false, true, 5_000L));
 
-		HitRecord player = HitCapture.capture(HitsplatID.DAMAGE_ME_POISE, 15, "Zezima", TargetKind.PLAYER, false, true, true, 5_000L);
+		HitRecord player = HitCapture.capture(HitsplatID.DAMAGE_ME_POISE, 15, "Zezima", TargetKind.PLAYER, 72, 9, 1333, false, true, true, 5_000L);
 		assertEquals(TargetKind.PLAYER, player.getTargetKind());
+		assertNull(player.getNpcId());
+		assertNull(player.getNpcIndex());
+		assertEquals(Integer.valueOf(1333), player.getWeaponItemId());
 		assertEquals("Poise", player.getTint());
-		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 15, "Zezima", TargetKind.PLAYER, false, true, false, 5_000L));
-		assertEquals("Unknown", HitCapture.capture(HitsplatID.DAMAGE_ME, 1, null, TargetKind.NPC, false, true, true, 5_000L).getTargetName());
-		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 1, "Something", null, false, true, true, 5_000L));
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 15, "Zezima", TargetKind.PLAYER, null, null, null, false, true, false, 5_000L));
+		assertEquals("Unknown", HitCapture.capture(HitsplatID.DAMAGE_ME, 1, null, TargetKind.NPC, null, null, null, false, true, true, 5_000L).getTargetName());
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 1, "Something", null, null, null, null, false, true, true, 5_000L));
+	}
+
+	@Test
+	public void recordsEquippedWeaponAndIgnoresEmptyHands()
+	{
+		HitRecord armed = HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Goblin", TargetKind.NPC, 301, 4, 1333, false, true, true, 1_000L);
+		assertEquals(Integer.valueOf(4), armed.getNpcIndex());
+		assertEquals(Integer.valueOf(1333), armed.getWeaponItemId());
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Goblin", TargetKind.NPC, 301, 4, null, false, true, true, 1_000L).getWeaponItemId());
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Goblin", TargetKind.NPC, 301, 4, -1, false, true, true, 1_000L).getWeaponItemId());
+		assertNull(HitCapture.capture(HitsplatID.DAMAGE_ME, 10, "Goblin", TargetKind.NPC, 301, 4, 0, false, true, true, 1_000L).getWeaponItemId());
 	}
 
 	@Test
@@ -158,8 +174,36 @@ public class CombatLogTest
 		assertNull(HitStyle.fromHitsplatType(HitsplatID.DOOM));
 	}
 
+	@Test
+	public void groupsSameNameNpcsByIndex()
+	{
+		List<HitRecord> hits = List.of(
+			hit(4_000L, "Guard", TargetKind.PLAYER, null, 9, HitKind.HIT),
+			hit(3_000L, "Guard", TargetKind.NPC, 1, 3, HitKind.HIT),
+			hit(2_000L, "Guard", TargetKind.NPC, 1, 5, HitKind.HIT),
+			hit(1_000L, "Guard", TargetKind.NPC, 2, 8, HitKind.HIT));
+
+		List<List<HitRecord>> groups = FightGroups.group(hits);
+		assertEquals(3, groups.size());
+		assertEquals(TargetKind.PLAYER, groups.get(0).get(0).getTargetKind());
+		assertEquals(9, groups.get(0).get(0).getAmount());
+
+		assertEquals(2, groups.get(1).size());
+		assertEquals(Integer.valueOf(1), groups.get(1).get(0).getNpcIndex());
+		assertEquals(3, groups.get(1).get(0).getAmount());
+		assertEquals(5, groups.get(1).get(1).getAmount());
+
+		assertEquals(1, groups.get(2).size());
+		assertEquals(Integer.valueOf(2), groups.get(2).get(0).getNpcIndex());
+	}
+
 	private static HitRecord hit(long time, String name, TargetKind kind, int amount, HitKind hitKind)
 	{
-		return new HitRecord(time, name, kind, amount, hitKind, null);
+		return hit(time, name, kind, null, amount, hitKind);
+	}
+
+	private static HitRecord hit(long time, String name, TargetKind kind, Integer npcIndex, int amount, HitKind hitKind)
+	{
+		return new HitRecord(time, name, kind, null, npcIndex, null, amount, hitKind, null);
 	}
 }

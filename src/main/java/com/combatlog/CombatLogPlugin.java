@@ -8,8 +8,13 @@ import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
+import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
+import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.HitsplatApplied;
@@ -97,9 +102,14 @@ public class CombatLogPlugin extends Plugin
 
 		boolean self = actor == client.getLocalPlayer();
 		TargetKind targetKind = null;
+		Integer npcId = null;
+		Integer npcIndex = null;
 		if (actor instanceof NPC)
 		{
+			NPC npc = (NPC) actor;
 			targetKind = TargetKind.NPC;
+			npcId = npcId(npc);
+			npcIndex = npc.getIndex();
 		}
 		else if (actor instanceof Player)
 		{
@@ -111,6 +121,9 @@ public class CombatLogPlugin extends Plugin
 			event.getHitsplat().getAmount(),
 			actor.getName(),
 			targetKind,
+			npcId,
+			npcIndex,
+			equippedWeaponId(),
 			self,
 			config.includeBlocks(),
 			config.recordPlayerHits(),
@@ -159,6 +172,35 @@ public class CombatLogPlugin extends Plugin
 				overlayManager.remove(overlay);
 			}
 		}
+	}
+
+	private Integer equippedWeaponId()
+	{
+		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+		if (equipment == null)
+		{
+			return null;
+		}
+		Item weapon = equipment.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
+		if (weapon == null || weapon.getId() <= 0)
+		{
+			return null;
+		}
+		return weapon.getId();
+	}
+
+	private static Integer npcId(NPC npc)
+	{
+		NPCComposition composition = npc.getTransformedComposition();
+		if (composition == null)
+		{
+			composition = npc.getComposition();
+		}
+		if (composition != null)
+		{
+			return composition.getId();
+		}
+		return npc.getId();
 	}
 
 	private void queueRefresh()

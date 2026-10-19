@@ -2,24 +2,31 @@ package com.combatlog;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Graphics;
 import java.awt.GridLayout;
-import java.awt.Rectangle;
 import java.awt.Toolkit;
+import java.awt.image.BufferedImage;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
+import java.util.List;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.Scrollable;
+import javax.swing.JViewport;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.ColorScheme;
@@ -34,6 +41,8 @@ class CombatLogPanel extends PluginPanel
 
 	private final CombatLog combatLog;
 	private final CombatLogConfig config;
+	private final MonsterIcons monsterIcons;
+	private final WeaponIcons weaponIcons;
 
 	private final JLabel damageValue = new JLabel("\u2014");
 	private final JLabel rateValue = new JLabel("\u2014");
@@ -41,8 +50,7 @@ class CombatLogPanel extends PluginPanel
 	private final JPanel targetsPanel = new JPanel();
 	private final JPanel hitsPanel = new JPanel();
 	private final JLabel emptyLabel = new JLabel();
-	private final ScrollBody body = new ScrollBody();
-	private final JScrollPane scroll;
+	private final JPanel body = new JPanel();
 	private final JButton clearButton = new JButton("Clear");
 	private final JButton copyButton = new JButton("Copy");
 
@@ -51,14 +59,19 @@ class CombatLogPanel extends PluginPanel
 	private Timer copyTimer;
 
 	@Inject
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
 	{
-		super(false);
+		super(true);
 		this.combatLog = combatLog;
 		this.config = config;
+		this.monsterIcons = monsterIcons;
+		this.weaponIcons = weaponIcons;
+		monsterIcons.onLoaded(this::refresh);
+		weaponIcons.onLoaded(this::refresh);
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
+		applyScrollChrome();
 
 		damageValue.setFont(FontManager.getRunescapeBoldFont().deriveFont(18f));
 		damageValue.setForeground(VALUE);
@@ -85,27 +98,29 @@ class CombatLogPanel extends PluginPanel
 		body.setBorder(new EmptyBorder(8, 8, 8, 8));
 
 		targetsPanel.setLayout(new BoxLayout(targetsPanel, BoxLayout.Y_AXIS));
-		targetsPanel.setOpaque(false);
+		targetsPanel.setOpaque(true);
+		targetsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		targetsPanel.setAlignmentX(LEFT_ALIGNMENT);
 		body.add(targetsPanel);
 
 		emptyLabel.setFont(FontManager.getRunescapeSmallFont());
 		emptyLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		emptyLabel.setAlignmentX(LEFT_ALIGNMENT);
-		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the blue hitsplats you land will show up here.<br><br>Poison, venom, burn, and other players' hits stay off this log. The game does not mark those splats as yours.</body></html>");
+		emptyLabel.setOpaque(true);
+		emptyLabel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		emptyLabel.setVerticalAlignment(SwingConstants.TOP);
+		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the blue hitsplats you land will show up here."
+			+ "<br><br>Poison, venom, burn, and other players' hits stay off this log. The game does not mark those splats as yours.</body></html>");
+		int emptyHeight = emptyLabel.getPreferredSize().height;
+		emptyLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, emptyHeight));
 		body.add(emptyLabel);
 
 		hitsPanel.setLayout(new BoxLayout(hitsPanel, BoxLayout.Y_AXIS));
-		hitsPanel.setOpaque(false);
+		hitsPanel.setOpaque(true);
+		hitsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		hitsPanel.setAlignmentX(LEFT_ALIGNMENT);
 		body.add(hitsPanel);
-
-		scroll = new JScrollPane(body);
-		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		scroll.setBorder(BorderFactory.createEmptyBorder());
-		scroll.getViewport().setBackground(ColorScheme.DARK_GRAY_COLOR);
-		scroll.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		add(scroll, BorderLayout.CENTER);
+		add(body, BorderLayout.CENTER);
 
 		add(buildButtons(), BorderLayout.SOUTH);
 		refresh();
@@ -115,8 +130,9 @@ class CombatLogPanel extends PluginPanel
 	{
 		disarmClear();
 		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), config.recentSeconds());
-		int previousHeight = body.getPreferredSize().height;
-		int scrollValue = scroll.getVerticalScrollBar().getValue();
+		JScrollPane scrollPane = getScrollPane();
+		int previousHeight = getPreferredSize().height;
+		int scrollValue = scrollPane.getVerticalScrollBar().getValue();
 		boolean pinnedToTop = scrollValue <= 0;
 
 		if (snapshot.getDamageHits() == 0 && snapshot.getBlocks() == 0)
@@ -151,12 +167,64 @@ class CombatLogPanel extends PluginPanel
 		revalidate();
 		if (pinnedToTop)
 		{
-			scroll.getVerticalScrollBar().setValue(0);
+			scrollPane.getVerticalScrollBar().setValue(0);
 		}
 		else
 		{
-			int growth = body.getPreferredSize().height - previousHeight;
-			scroll.getVerticalScrollBar().setValue(scrollValue + Math.max(0, growth));
+			int growth = getPreferredSize().height - previousHeight;
+			scrollPane.getVerticalScrollBar().setValue(scrollValue + Math.max(0, growth));
+		}
+		repaint();
+		applyScrollChrome();
+		SwingUtilities.invokeLater(this::applyScrollChrome);
+	}
+
+	@Override
+	protected void paintComponent(Graphics g)
+	{
+		g.setColor(getBackground());
+		g.fillRect(0, 0, getWidth(), getHeight());
+		super.paintComponent(g);
+	}
+
+	@Override
+	public void addNotify()
+	{
+		super.addNotify();
+		applyScrollChrome();
+	}
+
+	private void applyScrollChrome()
+	{
+		JScrollPane scrollPane = getScrollPane();
+		if (scrollPane == null)
+		{
+			return;
+		}
+
+		scrollPane.setBorder(null);
+		scrollPane.setOpaque(true);
+		scrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+		JViewport viewport = scrollPane.getViewport();
+		viewport.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
+		viewport.setOpaque(true);
+		viewport.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		Component view = viewport.getView();
+		if (view instanceof JComponent && view != this)
+		{
+			JComponent scrollView = (JComponent) view;
+			scrollView.setOpaque(true);
+			scrollView.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		}
+
+		JPanel wrapped = getWrappedPanel();
+		if (wrapped != null && wrapped != this)
+		{
+			wrapped.setOpaque(true);
+			wrapped.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		}
 		repaint();
 	}
@@ -250,40 +318,67 @@ class CombatLogPanel extends PluginPanel
 
 		ZoneId zone = ZoneId.systemDefault();
 		int index = 0;
-		for (HitRecord hit : snapshot.getHits())
+		boolean firstGroup = true;
+		for (List<HitRecord> group : FightGroups.group(snapshot.getHits()))
 		{
-			JPanel row = new JPanel(new BorderLayout(6, 0));
-			row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
-			row.setBorder(new EmptyBorder(3, 6, 3, 6));
-			row.setAlignmentX(LEFT_ALIGNMENT);
+			if (!firstGroup)
+			{
+				hitsPanel.add(groupSeparator());
+			}
+			firstGroup = false;
+			for (HitRecord hit : group)
+			{
+				JPanel row = new JPanel(new BorderLayout(6, 0));
+				row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
+				row.setBorder(new EmptyBorder(3, 6, 3, 6));
+				row.setAlignmentX(LEFT_ALIGNMENT);
 
-			JLabel time = new JLabel(CombatLogFormatter.formatTime(hit.getTimeMillis(), zone));
-			time.setFont(FontManager.getRunescapeSmallFont());
-			time.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-			holdWidth(time);
+				JLabel icon = monsterIcon(hit);
 
-			JLabel name = new JLabel(hit.getTargetName());
-			name.setFont(FontManager.getRunescapeSmallFont());
-			name.setForeground(hit.getTargetKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
-			name.setMinimumSize(new Dimension(0, name.getPreferredSize().height));
+				JLabel name = new JLabel(hit.getTargetName());
+				name.setFont(FontManager.getRunescapeSmallFont());
+				name.setForeground(hit.getTargetKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
+				name.setMinimumSize(new Dimension(0, name.getPreferredSize().height));
 
-			JLabel amount = new JLabel(CombatLogFormatter.amountLabel(hit), SwingConstants.RIGHT);
-			amount.setFont(FontManager.getRunescapeSmallFont());
-			amount.setForeground(CombatLogOverlay.amountColor(hit));
-			holdWidth(amount);
+				JLabel amount = new JLabel(CombatLogFormatter.amountLabel(hit), SwingConstants.RIGHT);
+				amount.setFont(FontManager.getRunescapeSmallFont());
+				amount.setForeground(CombatLogOverlay.amountColor(hit));
+				holdWidth(amount);
 
-			JPanel nameAndTime = new JPanel(new BorderLayout(6, 0));
-			nameAndTime.setOpaque(false);
-			nameAndTime.add(time, BorderLayout.WEST);
-			nameAndTime.add(name, BorderLayout.CENTER);
+				JPanel nameAndIcon = new JPanel(new BorderLayout(6, 0));
+				nameAndIcon.setOpaque(false);
+				nameAndIcon.add(icon, BorderLayout.WEST);
+				nameAndIcon.add(name, BorderLayout.CENTER);
 
-			row.add(nameAndTime, BorderLayout.CENTER);
-			row.add(amount, BorderLayout.EAST);
-			row.setToolTipText(hit.describe());
-			fitRow(row);
-			hitsPanel.add(row);
-			index++;
+				JPanel damage = new JPanel(new BorderLayout(4, 0));
+				damage.setOpaque(false);
+				JLabel weapon = weaponIcon(hit);
+				if (weapon != null)
+				{
+					damage.add(weapon, BorderLayout.WEST);
+				}
+				damage.add(amount, BorderLayout.EAST);
+
+				row.add(nameAndIcon, BorderLayout.CENTER);
+				row.add(damage, BorderLayout.EAST);
+				row.setToolTipText(CombatLogFormatter.formatTime(hit.getTimeMillis(), zone) + "  " + hit.describe());
+				fitRow(row);
+				hitsPanel.add(row);
+				index++;
+			}
 		}
+	}
+
+	private static JPanel groupSeparator()
+	{
+		JPanel line = new JPanel();
+		line.setOpaque(false);
+		line.setAlignmentX(LEFT_ALIGNMENT);
+		line.setBorder(BorderFactory.createCompoundBorder(
+			new EmptyBorder(3, 0, 3, 0),
+			BorderFactory.createMatteBorder(2, 0, 0, 0, CombatLogOverlay.GROUP_LINE)));
+		fitRow(line);
+		return line;
 	}
 
 	private void onClear()
@@ -339,6 +434,45 @@ class CombatLogPanel extends PluginPanel
 		copyTimer.start();
 	}
 
+	private JLabel monsterIcon(HitRecord hit)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(MonsterIcons.SIZE, MonsterIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		if (hit.getNpcId() != null)
+		{
+			BufferedImage image = monsterIcons.get(hit.getNpcId());
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+		}
+		return icon;
+	}
+
+	private JLabel weaponIcon(HitRecord hit)
+	{
+		Integer itemId = hit.getWeaponItemId();
+		if (itemId == null)
+		{
+			return null;
+		}
+		BufferedImage image = weaponIcons.get(itemId);
+		if (image == null)
+		{
+			return null;
+		}
+		JLabel icon = new JLabel(new ImageIcon(image));
+		icon.setOpaque(false);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		return icon;
+	}
+
 	private static JLabel sectionLabel(String text)
 	{
 		JLabel label = new JLabel(text);
@@ -364,6 +498,8 @@ class CombatLogPanel extends PluginPanel
 	private static void styleButton(JButton button)
 	{
 		button.setFocusable(false);
+		button.setOpaque(true);
+		button.setContentAreaFilled(true);
 		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		button.setForeground(Color.WHITE);
 		button.setFont(FontManager.getRunescapeSmallFont());
@@ -390,36 +526,4 @@ class CombatLogPanel extends PluginPanel
 		});
 	}
 
-	private static final class ScrollBody extends JPanel implements Scrollable
-	{
-		@Override
-		public Dimension getPreferredScrollableViewportSize()
-		{
-			return getPreferredSize();
-		}
-
-		@Override
-		public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction)
-		{
-			return 16;
-		}
-
-		@Override
-		public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction)
-		{
-			return Math.max(visibleRect.height - 16, 16);
-		}
-
-		@Override
-		public boolean getScrollableTracksViewportWidth()
-		{
-			return true;
-		}
-
-		@Override
-		public boolean getScrollableTracksViewportHeight()
-		{
-			return false;
-		}
-	}
 }

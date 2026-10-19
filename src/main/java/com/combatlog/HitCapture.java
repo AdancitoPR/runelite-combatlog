@@ -19,6 +19,9 @@ public final class HitCapture
 		int amount,
 		@Nullable String actorName,
 		@Nullable TargetKind targetKind,
+		@Nullable Integer npcId,
+		@Nullable Integer npcIndex,
+		@Nullable Integer weaponItemId,
 		boolean self,
 		boolean includeBlocks,
 		boolean recordPlayers,
@@ -44,6 +47,6 @@ public final class HitCapture
 		}
 
 		String name = actorName == null || actorName.isEmpty() ? "Unknown" : actorName;
-		return new HitRecord(nowMillis, name, targetKind, amount, style.getKind(), style.getTint());
+		return new HitRecord(nowMillis, name, targetKind, npcId, npcIndex, weaponItemId, amount, style.getKind(), style.getTint());
 	}
 }
