@@ -197,6 +197,231 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(2), groups.get(2).get(0).getNpcIndex());
 	}
 
+	@Test
+	public void splitsReusedIndexWhenTheNpcDies()
+	{
+		CombatLog log = new CombatLog(20);
+		log.add(npcHit(0, "Cerberus", 5, 5862, 40));
+		log.add(npcHit(8, "Cerberus", 5, 5862, 30));
+		log.closeLife(5, 10);
+		log.noteForm(5, 5863);
+		log.add(npcHit(25, "Cerberus", 5, 5862, 20));
+
+		List<Fight> fights = log.summarize(25_000L, 10).getFights();
+		assertEquals(2, fights.size());
+		assertEquals(1, fights.get(0).getHits().size());
+		assertEquals(20, fights.get(0).getHits().get(0).getAmount());
+		assertTrue(fights.get(1).isKilled());
+		assertEquals(2, fights.get(1).getHits().size());
+	}
+
+	@Test
+	public void keepsAFifteenTickGapTogetherUntilDeath()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(0, "Cerberus", 5, 5862, 10));
+		log.add(npcHit(15, "Cerberus", 5, 5862, 12));
+		assertEquals(1, log.summarize(15_000L, 10).getFights().size());
+
+		CombatLog quiet = new CombatLog(10);
+		quiet.add(npcHit(0, "Goblin", 3, 301, 5));
+		quiet.add(npcHit(17, "Goblin", 3, 301, 6));
+		assertEquals(2, quiet.summarize(17_000L, 10).getFights().size());
+	}
+
+	@Test
+	public void lateHitStaysOnTheClosedFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(0, "Cerberus", 5, 5862, 10));
+		log.closeLife(5, 10);
+		log.add(npcHit(13, "Cerberus", 5, 5862, 4));
+		List<Fight> fights = log.summarize(13_000L, 10).getFights();
+		assertEquals(1, fights.size());
+		assertEquals(2, fights.get(0).getHits().size());
+	}
+
+	@Test
+	public void formChangeStaysInTheOpenFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Cerberus", 5, 5862, 10));
+		log.noteForm(5, 5866);
+		log.add(npcHit(5, "Cerberus", 5, 5862, 8));
+		List<Fight> fights = log.summarize(5_000L, 10).getFights();
+		assertEquals(1, fights.size());
+		assertEquals(Integer.valueOf(5866), fights.get(0).getNpcId());
+	}
+
+	@Test
+	public void formatsKillFooterWithDpsAccuracyAndLostTicks()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(0, 5, "Cerberus", 4151, 4);
+		log.add(npcHit(0, "Cerberus", 5, 5862, 186));
+		log.noteAttack(9, 5, "Cerberus", 4151, 4);
+		log.closeLife(5, 21);
+		Fight fight = log.summarize(21_000L, 10).getFights().get(0);
+		assertEquals("12.6s · 100% · lost 5", FightSummary.footer(fight, 21, DamageView.OUTGOING));
+	}
+
+	@Test
+	public void marksSpecOnlyForTheBoundTarget()
+	{
+		SpecMarker marker = new SpecMarker();
+		marker.arm(1, 13652);
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.THRALL));
+
+		marker.arm(1, 1333);
+		assertTrue(!marker.claim(2, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		assertEquals(2, SpecWeapons.splats(1215));
+		assertEquals(4, SpecWeapons.splats(29577));
+		assertEquals(1, SpecWeapons.splats(1333));
+	}
+
+	@Test
+	public void incomingDamageIsExcludedFromDpsAndFilteredByView()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(incoming(2, "Goblin", 4, 301, 8));
+
+		CombatSnapshot outgoing = log.summarize(2_000L, 10, DamageView.OUTGOING);
+		assertEquals(10L, outgoing.getTotalDamage());
+		assertEquals(1, outgoing.getHits().size());
+		assertEquals(DamageDirection.OUTGOING, outgoing.getHits().get(0).getDirection());
+
+		CombatSnapshot incoming = log.summarize(2_000L, 10, DamageView.INCOMING);
+		assertEquals(1, incoming.getHits().size());
+		assertEquals(8, incoming.getHits().get(0).getAmount());
+		assertEquals(10L, incoming.getTotalDamage());
+
+		CombatSnapshot both = log.summarize(2_000L, 10, DamageView.BOTH);
+		assertEquals(2, both.getHits().size());
+		assertEquals(8, both.getHits().get(0).getAmount());
+		assertEquals(10, both.getHits().get(1).getAmount());
+	}
+
+	@Test
+	public void usesAttackSnapshotWeaponWhenPresent()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Goblin", 1333, 4);
+		assertEquals(Integer.valueOf(1333), log.weaponFor(4, 12, 4151));
+		assertEquals(Integer.valueOf(4151), log.weaponFor(4, 30, 4151));
+	}
+
+	@Test
+	public void accuracyCountsWeaponHitsAndBlocks()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(new HitRecord(1_200L, "Goblin", TargetKind.NPC, 301, 4, null, 0, HitKind.BLOCK, null, 2, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		Fight fight = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals(Integer.valueOf(50), FightSummary.accuracy(fight));
+	}
+
+	@Test
+	public void lostTicksUseAttackSpeed()
+	{
+		assertEquals(6, FightSummary.lostTicks(java.util.Arrays.asList(
+			new AttackSwing(0, 1, "Goblin", 1333, 4, 1),
+			new AttackSwing(10, 1, "Goblin", 1333, 4, 2))));
+	}
+
+	@Test
+	public void overkillIsRemovedFromFightDps()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(0L, "Goblin", TargetKind.NPC, 301, 4, null, 42, HitKind.HIT, null, 0, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 6, null, null, 0));
+		log.closeLife(4, 10);
+		Fight fight = log.summarize(10_000L, 10).getFights().get(0);
+		assertEquals("6.0s · 100%", FightSummary.footer(fight, 10, DamageView.OUTGOING));
+		assertEquals("42 (6 overkill)", CombatLogFormatter.amountLabel(fight.getHits().get(0)));
+		assertEquals(6, Overkill.amount(42, 30, 30, 36, true));
+		assertEquals(0, Overkill.amount(42, 30, 30, -1, true));
+	}
+
+	@Test
+	public void sessionDpsUsesActiveTicks()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(0, "Goblin", 4, 301, 60));
+		log.noteCombatTick(0);
+		log.noteCombatTick(10);
+		CombatSnapshot snapshot = log.summarize(20_000L, 10);
+		assertEquals(50.0, snapshot.getSessionDps(), 0.001);
+	}
+
+	@Test
+	public void sameAttackSplatsCollapseToOneRow()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(attackHit(1, 12, 7L));
+		log.add(attackHit(1, 14, 7L));
+		log.add(attackHit(1, 10, 7L));
+		CombatSnapshot snapshot = log.summarize(1_000L, 10);
+		assertEquals(1, snapshot.getDamageHits());
+		assertEquals(36L, snapshot.getTotalDamage());
+		assertEquals(36.0, snapshot.getAverageHit(), 0.001);
+		List<AttackRow> rows = AttackRow.group(snapshot.getHits());
+		assertEquals(1, rows.size());
+		assertEquals("36 · 12+14+10", CombatLogFormatter.attackLabel(rows.get(0)));
+	}
+
+	@Test
+	public void thrallAndVengeanceStayOutOfWeaponDps()
+	{
+		assertEquals(DamageSource.THRALL, DamageSources.classify(false, false, true, 3, 3, false));
+		assertEquals(DamageSource.WEAPON, DamageSources.classify(false, true, true, 3, 3, true));
+		assertEquals(DamageSource.VENGEANCE, DamageSources.classify(false, false, false, 12, 3, true));
+		assertEquals(DamageSource.BURN, DamageSources.classify(true, false, false, 8, 3, false));
+
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(new HitRecord(1_200L, "Goblin", TargetKind.NPC, 301, 4, null, 3, HitKind.HIT, null, 2, DamageDirection.OUTGOING, DamageSource.THRALL, false, 0, null, null, 0));
+		log.add(new HitRecord(1_400L, "Goblin", TargetKind.NPC, 301, 4, null, 12, HitKind.HIT, null, 3, DamageDirection.OUTGOING, DamageSource.VENGEANCE, false, 0, null, null, 0));
+		CombatSnapshot snapshot = log.summarize(2_000L, 10);
+		assertEquals(10L, snapshot.getTotalDamage());
+		assertEquals(1, snapshot.getDamageHits());
+		assertEquals("3 thrall", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.THRALL)));
+		assertEquals("12 venge", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.VENGEANCE)));
+	}
+
+	private static HitRecord findSource(CombatSnapshot snapshot, DamageSource source)
+	{
+		for (HitRecord hit : snapshot.getHits())
+		{
+			if (hit.getSource() == source)
+			{
+				return hit;
+			}
+		}
+		return null;
+	}
+
+	private static HitRecord npcHit(int tick, String name, int index, int npcId, int amount)
+	{
+		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
+	private static HitRecord incoming(int tick, String name, int index, int npcId, int amount)
+	{
+		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
+	private static HitRecord attackHit(int tick, int amount, long attackId)
+	{
+		return new HitRecord(tick * 600L, "Goblin", TargetKind.NPC, 301, 4, 1333, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, attackId, null, 0);
+	}
+
 	private static HitRecord hit(long time, String name, TargetKind kind, int amount, HitKind hitKind)
 	{
 		return hit(time, name, kind, null, amount, hitKind);

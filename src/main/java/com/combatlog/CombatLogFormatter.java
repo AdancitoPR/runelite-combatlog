@@ -25,15 +25,6 @@ public final class CombatLogFormatter
 		return String.format("%,d", damage);
 	}
 
-	public static String formatRate(Double rate)
-	{
-		if (rate == null)
-		{
-			return "\u2014";
-		}
-		return String.format("%.1f", rate);
-	}
-
 	public static String formatAverage(Double average)
 	{
 		if (average == null)
@@ -49,11 +40,80 @@ public final class CombatLogFormatter
 		{
 			return "Block";
 		}
+		String text = Integer.toString(hit.getAmount());
 		if (hit.getKind() == HitKind.MAX_HIT)
 		{
-			return hit.getAmount() + "*";
+			text += "*";
 		}
-		return Integer.toString(hit.getAmount());
+		if (hit.getOverkill() > 0)
+		{
+			text += " (" + hit.getOverkill() + " overkill)";
+		}
+		if (hit.isSpecial())
+		{
+			text += " spec";
+		}
+		if (hit.getSource() == DamageSource.THRALL)
+		{
+			text += " thrall";
+		}
+		else if (hit.getSource() == DamageSource.VENGEANCE)
+		{
+			text += " venge";
+		}
+		else if (hit.getSource() == DamageSource.BURN)
+		{
+			text += " burn";
+		}
+		return text;
+	}
+
+	public static String attackLabel(AttackRow row)
+	{
+		if (row.getHits().size() == 1)
+		{
+			return amountLabel(row.first());
+		}
+		StringBuilder parts = new StringBuilder();
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.isBlock())
+			{
+				continue;
+			}
+			if (parts.length() > 0)
+			{
+				parts.append('+');
+			}
+			parts.append(hit.getAmount());
+			if (hit.getKind() == HitKind.MAX_HIT)
+			{
+				parts.append('*');
+			}
+		}
+		String text = row.getTotal() + " · " + parts;
+		if (row.getOverkill() > 0)
+		{
+			text += " (" + row.getOverkill() + " overkill)";
+		}
+		if (row.isSpecial())
+		{
+			text += " spec";
+		}
+		HitRecord first = row.first();
+		if (first.getSource() == DamageSource.THRALL)
+		{
+			text += " thrall";
+		}
+		else if (first.getSource() == DamageSource.VENGEANCE)
+		{
+			text += " venge";
+		}
+		else if (first.getSource() == DamageSource.BURN)
+		{
+			text += " burn";
+		}
+		return text;
 	}
 
 	public static String toClipboardText(CombatSnapshot snapshot, ZoneId zone)
@@ -66,9 +126,7 @@ public final class CombatLogFormatter
 		text.append("Max hit: ");
 		text.append(snapshot.getDamageHits() == 0 ? "\u2014" : Integer.toString(snapshot.getMaxHit()));
 		text.append('\n');
-		text.append("Average hit: ").append(formatAverage(snapshot.getAverageHit())).append('\n');
-		text.append("Session DPS: ").append(formatRate(snapshot.getSessionDps())).append('\n');
-		text.append("Recent DPS: ").append(formatRate(snapshot.getRecentDps())).append("\n\n");
+		text.append("Average hit: ").append(formatAverage(snapshot.getAverageHit())).append("\n\n");
 
 		if (!snapshot.getTargets().isEmpty())
 		{

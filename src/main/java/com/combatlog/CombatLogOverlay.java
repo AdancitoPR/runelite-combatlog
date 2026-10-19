@@ -6,7 +6,6 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import java.util.List;
 import javax.inject.Inject;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -19,8 +18,6 @@ import net.runelite.client.ui.overlay.components.TitleComponent;
 
 class CombatLogOverlay extends OverlayPanel
 {
-	static final Color HIT_COLOR = new Color(120, 186, 255);
-	static final Color MAX_HIT_COLOR = new Color(255, 196, 64);
 	static final Color BLOCK_COLOR = new Color(150, 150, 150);
 	static final Color PLAYER_COLOR = new Color(255, 176, 140);
 	static final Color GROUP_LINE = new Color(55, 200, 90);
@@ -51,7 +48,7 @@ class CombatLogOverlay extends OverlayPanel
 			return null;
 		}
 
-		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), config.recentSeconds());
+		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
 		if (snapshot.isEmpty())
 		{
 			return null;
@@ -60,21 +57,27 @@ class CombatLogOverlay extends OverlayPanel
 		panelComponent.getChildren().add(TitleComponent.builder()
 			.text("Combat log")
 			.build());
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left(CombatLogFormatter.formatDamage(snapshot.getTotalDamage()))
-			.leftColor(HIT_COLOR)
-			.right(CombatLogFormatter.formatRate(snapshot.getSessionDps()) + " dps")
-			.build());
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left("Recent " + config.recentSeconds() + "s")
-			.leftColor(BLOCK_COLOR)
-			.right(CombatLogFormatter.formatRate(snapshot.getRecentDps()))
-			.build());
+		if (snapshot.getView() == DamageView.INCOMING)
+		{
+			panelComponent.getChildren().add(splatLine("Damage taken",
+				Hitsplats.amount(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken()))));
+		}
+		else if (snapshot.getView() == DamageView.BOTH && snapshot.getDamageTaken() > 0)
+		{
+			panelComponent.getChildren().add(splatLine("Total damage", Hitsplats.beside(
+				Hitsplats.amount(false, CombatLogFormatter.formatDamage(snapshot.getTotalDamage())),
+				Hitsplats.amount(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken())))));
+		}
+		else
+		{
+			panelComponent.getChildren().add(splatLine("Total damage",
+				Hitsplats.amount(false, CombatLogFormatter.formatDamage(snapshot.getTotalDamage()))));
+		}
 
 		int shown = 0;
 		int limit = Math.max(1, config.overlayHits());
 		boolean drewGroup = false;
-		for (List<HitRecord> group : FightGroups.group(snapshot.getHits()))
+		for (Fight fight : snapshot.getFights())
 		{
 			if (shown >= limit)
 			{
@@ -84,14 +87,22 @@ class CombatLogOverlay extends OverlayPanel
 			{
 				panelComponent.getChildren().add(new GroupSeparator());
 			}
-			for (HitRecord hit : group)
+			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
+			if (footer != null)
+			{
+				panelComponent.getChildren().add(LineComponent.builder()
+					.left(footer)
+					.leftColor(BLOCK_COLOR)
+					.build());
+			}
+			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 			{
 				if (shown >= limit)
 				{
 					break;
 				}
 				shown++;
-				panelComponent.getChildren().add(hitRow(hit));
+				panelComponent.getChildren().add(hitRow(attack));
 			}
 			drewGroup = true;
 		}
@@ -99,22 +110,44 @@ class CombatLogOverlay extends OverlayPanel
 		return super.render(graphics);
 	}
 
-	private LayoutableRenderableEntity hitRow(HitRecord hit)
+	private DamageView damageView()
 	{
-		String amount = CombatLogFormatter.amountLabel(hit);
+		try
+		{
+			DamageView view = config.damageView();
+			return view == null ? DamageView.OUTGOING : view;
+		}
+		catch (RuntimeException ex)
+		{
+			return DamageView.OUTGOING;
+		}
+	}
+
+	private LayoutableRenderableEntity splatLine(String label, BufferedImage splat)
+	{
 		LineComponent line = LineComponent.builder()
-			.left(hit.getTargetName())
+			.left(label)
+			.right("")
+			.build();
+		return new DamageLine(line, splat, "");
+	}
+
+	private LayoutableRenderableEntity hitRow(AttackRow attack)
+	{
+		HitRecord hit = attack.first();
+		String[] parts = Hitsplats.parts(attack);
+		String name = hit.getTargetName();
+		LineComponent line = LineComponent.builder()
+			.left(name)
 			.leftColor(hit.getTargetKind() == TargetKind.PLAYER ? PLAYER_COLOR : Color.WHITE)
-			.right(amount)
-			.rightColor(amountColor(hit))
+			.right(parts[1])
+			.rightColor(BLOCK_COLOR)
 			.build();
 
-		LayoutableRenderableEntity row = line;
+		BufferedImage splat = Hitsplats.amount(hit.getDirection() == DamageDirection.INCOMING, parts[0]);
 		BufferedImage weapon = weaponIcon(hit);
-		if (weapon != null)
-		{
-			row = new DamageLine(line, weapon, amount);
-		}
+		BufferedImage mark = weapon == null ? splat : Hitsplats.beside(weapon, splat);
+		LayoutableRenderableEntity row = new DamageLine(line, mark, parts[1]);
 
 		BufferedImage monster = hit.getNpcId() == null ? null : monsterIcons.get(hit.getNpcId());
 		if (monster == null)
@@ -139,41 +172,8 @@ class CombatLogOverlay extends OverlayPanel
 		return weaponIcons.get(itemId);
 	}
 
-	static Color amountColor(HitRecord hit)
-	{
-		if (hit.isBlock())
-		{
-			return BLOCK_COLOR;
-		}
-		if (hit.getTint() != null)
-		{
-			switch (hit.getTint())
-			{
-				case "Cyan":
-					return new Color(80, 220, 220);
-				case "Yellow":
-					return new Color(240, 220, 70);
-				case "Orange":
-					return new Color(255, 160, 60);
-				case "White":
-					return Color.WHITE;
-				case "Poise":
-					return new Color(196, 120, 255);
-				default:
-					break;
-			}
-		}
-		if (hit.getKind() == HitKind.MAX_HIT)
-		{
-			return MAX_HIT_COLOR;
-		}
-		return HIT_COLOR;
-	}
-
 	/**
-	 * Draws the damage text on the right and the weapon sprite just to its left.
-	 * The damage number stays visible when the sprite has not loaded yet, because
-	 * this wrapper is only used once an icon is cached.
+	 * Draws the row text and a sprite just to the left of the right-hand label.
 	 */
 	private static final class DamageLine implements LayoutableRenderableEntity
 	{

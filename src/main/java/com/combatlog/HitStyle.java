@@ -68,4 +68,26 @@ public final class HitStyle
 				return null;
 		}
 	}
+
+	@Nullable
+	public static HitStyle fromIncomingType(int hitsplatType)
+	{
+		switch (hitsplatType)
+		{
+			case HitsplatID.DAMAGE_OTHER:
+				return new HitStyle(HitKind.HIT, null);
+			case HitsplatID.DAMAGE_OTHER_CYAN:
+				return new HitStyle(HitKind.HIT, "Cyan");
+			case HitsplatID.DAMAGE_OTHER_YELLOW:
+				return new HitStyle(HitKind.HIT, "Yellow");
+			case HitsplatID.DAMAGE_OTHER_ORANGE:
+				return new HitStyle(HitKind.HIT, "Orange");
+			case HitsplatID.DAMAGE_OTHER_WHITE:
+				return new HitStyle(HitKind.HIT, "White");
+			case HitsplatID.DAMAGE_OTHER_POISE:
+				return new HitStyle(HitKind.HIT, "Poise");
+			default:
+				return null;
+		}
+	}
 }

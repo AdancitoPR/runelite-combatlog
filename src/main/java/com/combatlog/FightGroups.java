@@ -48,21 +48,27 @@ public final class FightGroups
 		private final TargetKind kind;
 		private final String name;
 		private final Integer npcIndex;
+		private final Long fightId;
 
-		private FightKey(TargetKind kind, String name, Integer npcIndex)
+		private FightKey(TargetKind kind, String name, Integer npcIndex, Long fightId)
 		{
 			this.kind = kind;
 			this.name = name;
 			this.npcIndex = npcIndex;
+			this.fightId = fightId;
 		}
 
 		private static FightKey of(HitRecord hit)
 		{
+			if (hit.getFightId() != null)
+			{
+				return new FightKey(hit.getTargetKind(), hit.getTargetName(), null, hit.getFightId());
+			}
 			if (hit.getTargetKind() == TargetKind.PLAYER)
 			{
-				return new FightKey(TargetKind.PLAYER, hit.getTargetName(), null);
+				return new FightKey(TargetKind.PLAYER, hit.getTargetName(), null, null);
 			}
-			return new FightKey(TargetKind.NPC, hit.getTargetName(), hit.getNpcIndex());
+			return new FightKey(TargetKind.NPC, hit.getTargetName(), hit.getNpcIndex(), null);
 		}
 
 		@Override
@@ -77,13 +83,13 @@ public final class FightGroups
 				return false;
 			}
 			FightKey key = (FightKey) other;
-			return kind == key.kind && name.equals(key.name) && Objects.equals(npcIndex, key.npcIndex);
+			return kind == key.kind && name.equals(key.name) && Objects.equals(npcIndex, key.npcIndex) && Objects.equals(fightId, key.fightId);
 		}
 
 		@Override
 		public int hashCode()
 		{
-			return Objects.hash(kind, name, npcIndex);
+			return Objects.hash(kind, name, npcIndex, fightId);
 		}
 	}
 }

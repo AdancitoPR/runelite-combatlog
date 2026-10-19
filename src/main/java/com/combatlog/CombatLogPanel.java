@@ -3,6 +3,7 @@ package com.combatlog;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.GridLayout;
@@ -12,7 +13,8 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -29,6 +31,7 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -38,14 +41,23 @@ class CombatLogPanel extends PluginPanel
 	private static final int TARGET_ROWS = 6;
 	private static final Color ROW_ALT = new Color(46, 46, 46);
 	private static final Color VALUE = new Color(230, 230, 230);
+	private static final Color CHOICE_IDLE = ColorScheme.DARKER_GRAY_COLOR;
+	private static final Color CHOICE_HOVER = ColorScheme.DARKER_GRAY_HOVER_COLOR;
+	private static final Color CHOICE_PRESSED = new Color(24, 24, 24);
+	private static final Color CHOICE_SELECTED = new Color(68, 68, 68);
+	private static final Color CHOICE_SELECTED_HOVER = new Color(86, 86, 86);
+	private static final Color CHOICE_SELECTED_PRESSED = new Color(50, 50, 50);
 
 	private final CombatLog combatLog;
 	private final CombatLogConfig config;
 	private final MonsterIcons monsterIcons;
 	private final WeaponIcons weaponIcons;
+	private ConfigManager configManager;
+	private DamageView selectedView;
+	private final Map<Long, Boolean> expanded = new HashMap<>();
 
+	private final JLabel totalLabel = new JLabel("Total damage");
 	private final JLabel damageValue = new JLabel("\u2014");
-	private final JLabel rateValue = new JLabel("\u2014");
 	private final JLabel detailValue = new JLabel("\u2014");
 	private final JPanel targetsPanel = new JPanel();
 	private final JPanel hitsPanel = new JPanel();
@@ -54,11 +66,14 @@ class CombatLogPanel extends PluginPanel
 	private final JButton clearButton = new JButton("Clear");
 	private final JButton copyButton = new JButton("Copy");
 
+	private final JButton outgoingButton = new JButton();
+	private final JButton incomingButton = new JButton();
+	private final JButton bothButton = new JButton();
+
 	private boolean clearArmed;
 	private Timer clearTimer;
 	private Timer copyTimer;
 
-	@Inject
 	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
 	{
 		super(true);
@@ -73,12 +88,18 @@ class CombatLogPanel extends PluginPanel
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		applyScrollChrome();
 
+		totalLabel.setFont(FontManager.getRunescapeSmallFont());
+		totalLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		damageValue.setFont(FontManager.getRunescapeBoldFont().deriveFont(18f));
 		damageValue.setForeground(VALUE);
-		rateValue.setFont(FontManager.getRunescapeSmallFont());
-		rateValue.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		detailValue.setFont(FontManager.getRunescapeSmallFont());
 		detailValue.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+
+		JPanel totalRow = new JPanel(new BorderLayout(8, 0));
+		totalRow.setOpaque(false);
+		totalRow.setAlignmentX(LEFT_ALIGNMENT);
+		totalRow.add(totalLabel, BorderLayout.WEST);
+		totalRow.add(damageValue, BorderLayout.CENTER);
 
 		JPanel stats = new JPanel();
 		stats.setLayout(new BoxLayout(stats, BoxLayout.Y_AXIS));
@@ -86,12 +107,10 @@ class CombatLogPanel extends PluginPanel
 		stats.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.MEDIUM_GRAY_COLOR),
 			new EmptyBorder(8, 8, 8, 8)));
-		stats.add(damageValue);
-		stats.add(Box.createVerticalStrut(2));
-		stats.add(rateValue);
+		stats.add(totalRow);
 		stats.add(Box.createVerticalStrut(2));
 		stats.add(detailValue);
-		add(stats, BorderLayout.NORTH);
+		add(buildNorth(stats), BorderLayout.NORTH);
 
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -126,39 +145,234 @@ class CombatLogPanel extends PluginPanel
 		refresh();
 	}
 
+	@Inject
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, ConfigManager configManager)
+	{
+		this(combatLog, config, monsterIcons, weaponIcons);
+		this.configManager = configManager;
+	}
+
+	void setDamageView(DamageView view)
+	{
+		applyView(view == null ? DamageView.OUTGOING : view, false);
+	}
+
+	private JPanel buildNorth(JPanel stats)
+	{
+		styleChoice(outgoingButton, DamageView.OUTGOING, Hitsplats.mark(false), "Outgoing");
+		styleChoice(incomingButton, DamageView.INCOMING, Hitsplats.mark(true), "Incoming");
+		styleChoice(bothButton, DamageView.BOTH, Hitsplats.both(), "Both");
+		applyView(configuredView(), false);
+
+		JPanel choices = new JPanel(new GridLayout(1, 3, 4, 0));
+		choices.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		choices.setBorder(new EmptyBorder(0, 8, 8, 8));
+		choices.add(outgoingButton);
+		choices.add(incomingButton);
+		choices.add(bothButton);
+
+		JPanel north = new JPanel(new BorderLayout());
+		north.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		north.add(stats, BorderLayout.NORTH);
+		north.add(choices, BorderLayout.SOUTH);
+		return north;
+	}
+
+	private void styleChoice(JButton button, DamageView view, BufferedImage icon, String tooltip)
+	{
+		button.setFocusable(false);
+		button.setOpaque(true);
+		button.setContentAreaFilled(true);
+		button.setBorderPainted(true);
+		button.setRolloverEnabled(false);
+		button.setFont(FontManager.getRunescapeSmallFont());
+		button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		button.setText("");
+		button.setIcon(new ImageIcon(icon));
+		button.setToolTipText(tooltip);
+		button.setHorizontalAlignment(SwingConstants.CENTER);
+		button.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseEntered(MouseEvent event)
+			{
+				button.putClientProperty("hover", Boolean.TRUE);
+				paintChoice(button, selectedView == view);
+			}
+
+			@Override
+			public void mouseExited(MouseEvent event)
+			{
+				button.putClientProperty("hover", Boolean.FALSE);
+				button.putClientProperty("pressed", Boolean.FALSE);
+				paintChoice(button, selectedView == view);
+			}
+
+			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				button.putClientProperty("pressed", Boolean.TRUE);
+				paintChoice(button, selectedView == view);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event)
+			{
+				button.putClientProperty("pressed", Boolean.FALSE);
+				paintChoice(button, selectedView == view);
+			}
+		});
+		button.addActionListener(event -> applyView(view, true));
+	}
+
+	private void paintChoice(JButton button, boolean selected)
+	{
+		boolean hover = Boolean.TRUE.equals(button.getClientProperty("hover"));
+		boolean pressed = Boolean.TRUE.equals(button.getClientProperty("pressed"));
+		Color fill;
+		if (selected && pressed)
+		{
+			fill = CHOICE_SELECTED_PRESSED;
+		}
+		else if (selected && hover)
+		{
+			fill = CHOICE_SELECTED_HOVER;
+		}
+		else if (selected)
+		{
+			fill = CHOICE_SELECTED;
+		}
+		else if (pressed)
+		{
+			fill = CHOICE_PRESSED;
+		}
+		else if (hover)
+		{
+			fill = CHOICE_HOVER;
+		}
+		else
+		{
+			fill = CHOICE_IDLE;
+		}
+		button.setBackground(fill);
+		button.setForeground(selected || hover ? Color.WHITE : ColorScheme.LIGHT_GRAY_COLOR);
+		button.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 0, 2, 0, selected ? ColorScheme.BRAND_ORANGE : fill),
+			new EmptyBorder(5, 4, 3, 4)));
+	}
+
+	private void showPlainDamage(String text)
+	{
+		damageValue.setIcon(null);
+		damageValue.setText(text);
+	}
+
+	private void showSplat(boolean incoming, String text)
+	{
+		damageValue.setText("");
+		damageValue.setIcon(new ImageIcon(Hitsplats.amount(incoming, text)));
+	}
+
+	private void paintChoices()
+	{
+		paintChoice(outgoingButton, selectedView == DamageView.OUTGOING);
+		paintChoice(incomingButton, selectedView == DamageView.INCOMING);
+		paintChoice(bothButton, selectedView == DamageView.BOTH);
+	}
+
+	private DamageView configuredView()
+	{
+		if (selectedView != null)
+		{
+			return selectedView;
+		}
+		try
+		{
+			DamageView configured = config.damageView();
+			return configured == null ? DamageView.OUTGOING : configured;
+		}
+		catch (RuntimeException ex)
+		{
+			return DamageView.OUTGOING;
+		}
+	}
+
+	private DamageView damageView()
+	{
+		return configuredView();
+	}
+
+	private void applyView(DamageView view, boolean persist)
+	{
+		selectedView = view;
+		paintChoices();
+		if (persist && configManager != null)
+		{
+			configManager.setConfiguration(CombatLogConfig.GROUP, "damageView", view);
+		}
+		if (persist)
+		{
+			refresh();
+		}
+	}
+
 	void refresh()
 	{
 		disarmClear();
-		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), config.recentSeconds());
+		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
 		JScrollPane scrollPane = getScrollPane();
 		int previousHeight = getPreferredSize().height;
 		int scrollValue = scrollPane.getVerticalScrollBar().getValue();
 		boolean pinnedToTop = scrollValue <= 0;
 
-		if (snapshot.getDamageHits() == 0 && snapshot.getBlocks() == 0)
+		if (snapshot.getView() == DamageView.INCOMING)
 		{
-			damageValue.setText("\u2014");
-			rateValue.setText("Waiting for a hit");
-			detailValue.setText(" ");
+			totalLabel.setText("Damage taken");
+			if (snapshot.getIncomingHits() == 0)
+			{
+				showPlainDamage("\u2014");
+				detailValue.setText("Waiting for a hit");
+			}
+			else
+			{
+				showSplat(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken()));
+				detailValue.setText(snapshot.getIncomingHits() + (snapshot.getIncomingHits() == 1 ? " hit" : " hits"));
+			}
+		}
+		else if (snapshot.getDamageHits() == 0 && snapshot.getBlocks() == 0 && snapshot.getDamageTaken() == 0)
+		{
+			totalLabel.setText("Total damage");
+			showPlainDamage("\u2014");
+			detailValue.setText("Waiting for a hit");
 		}
 		else if (snapshot.getDamageHits() == 0)
 		{
-			damageValue.setText("0");
-			rateValue.setText("\u2014 dps  \u00b7  \u2014 recent");
+			totalLabel.setText("Total damage");
+			showSplat(false, "0");
 			detailValue.setText(snapshot.getBlocks() == 1 ? "1 block" : snapshot.getBlocks() + " blocks");
 		}
 		else
 		{
-			damageValue.setText(CombatLogFormatter.formatDamage(snapshot.getTotalDamage()));
-			rateValue.setText(CombatLogFormatter.formatRate(snapshot.getSessionDps()) + " dps  \u00b7  "
-				+ CombatLogFormatter.formatRate(snapshot.getRecentDps()) + " recent");
+			totalLabel.setText("Total damage");
+			String dealt = CombatLogFormatter.formatDamage(snapshot.getTotalDamage());
+			if (snapshot.getView() == DamageView.BOTH && snapshot.getDamageTaken() > 0)
+			{
+				damageValue.setText("");
+				damageValue.setIcon(new ImageIcon(Hitsplats.beside(
+					Hitsplats.amount(false, dealt),
+					Hitsplats.amount(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken())))));
+			}
+			else
+			{
+				showSplat(false, dealt);
+			}
 			detailValue.setText(snapshot.getDamageHits() + (snapshot.getDamageHits() == 1 ? " hit" : " hits")
 				+ "  \u00b7  max " + snapshot.getMaxHit()
 				+ "  \u00b7  avg " + CombatLogFormatter.formatAverage(snapshot.getAverageHit()));
 		}
 
 		rebuildTargets(snapshot);
-		rebuildHits(snapshot);
+		rebuildFights(snapshot);
 		emptyLabel.setVisible(snapshot.isEmpty());
 		boolean hasRows = !snapshot.isEmpty();
 		copyButton.setEnabled(hasRows);
@@ -278,18 +492,31 @@ class CombatLogPanel extends PluginPanel
 			nameLabel.setForeground(target.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
 			nameLabel.setMinimumSize(new Dimension(0, nameLabel.getPreferredSize().height));
 
-			JLabel damageLabel = new JLabel(CombatLogFormatter.formatDamage(target.getDamage()), SwingConstants.RIGHT);
-			damageLabel.setFont(FontManager.getRunescapeSmallFont());
-			damageLabel.setForeground(CombatLogOverlay.HIT_COLOR);
+			JLabel damageLabel = new JLabel("", SwingConstants.RIGHT);
+			damageLabel.setIcon(new ImageIcon(Hitsplats.amount(false, CombatLogFormatter.formatDamage(target.getDamage()))));
 			holdWidth(damageLabel);
-
-			row.add(nameLabel, BorderLayout.CENTER);
-			row.add(damageLabel, BorderLayout.EAST);
 			row.setToolTipText(target.getHits() + (target.getHits() == 1 ? " hit" : " hits")
 				+ ", max " + target.getMaxHit()
 				+ (target.getBlocks() > 0 ? ", " + target.getBlocks() + (target.getBlocks() == 1 ? " block" : " blocks") : ""));
-			fitRow(row);
-			targetsPanel.add(row);
+
+			row.add(nameLabel, BorderLayout.CENTER);
+			row.add(damageLabel, BorderLayout.EAST);
+			JPanel block = new JPanel();
+			block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
+			block.setOpaque(false);
+			block.setAlignmentX(LEFT_ALIGNMENT);
+			row.setAlignmentX(LEFT_ALIGNMENT);
+			block.add(row);
+			if (target.getPace() != null)
+			{
+				JLabel pace = new JLabel("<html><body style='width:190px'>" + target.getPace() + "</body></html>");
+				pace.setFont(FontManager.getRunescapeSmallFont());
+				pace.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+				pace.setAlignmentX(LEFT_ALIGNMENT);
+				block.add(pace);
+			}
+			fitRow(block);
+			targetsPanel.add(block);
 		}
 
 		int hidden = snapshot.getTargets().size() - shown;
@@ -305,68 +532,149 @@ class CombatLogPanel extends PluginPanel
 		targetsPanel.add(Box.createVerticalStrut(10));
 	}
 
-	private void rebuildHits(CombatSnapshot snapshot)
+	private void rebuildFights(CombatSnapshot snapshot)
 	{
 		hitsPanel.removeAll();
-		if (snapshot.isEmpty())
+		if (snapshot.getFights().isEmpty())
 		{
 			return;
 		}
 
-		hitsPanel.add(sectionLabel("Hits"));
+		hitsPanel.add(sectionLabel("Fights"));
 		hitsPanel.add(Box.createVerticalStrut(4));
 
 		ZoneId zone = ZoneId.systemDefault();
 		int index = 0;
-		boolean firstGroup = true;
-		for (List<HitRecord> group : FightGroups.group(snapshot.getHits()))
+		int fightIndex = 0;
+		for (Fight fight : snapshot.getFights())
 		{
-			if (!firstGroup)
+			boolean open = expanded.containsKey(fight.getId()) ? expanded.get(fight.getId()) : fightIndex == 0;
+			hitsPanel.add(fightHeader(fight, snapshot, open));
+			if (open)
 			{
-				hitsPanel.add(groupSeparator());
-			}
-			firstGroup = false;
-			for (HitRecord hit : group)
-			{
-				JPanel row = new JPanel(new BorderLayout(6, 0));
-				row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
-				row.setBorder(new EmptyBorder(3, 6, 3, 6));
-				row.setAlignmentX(LEFT_ALIGNMENT);
-
-				JLabel icon = monsterIcon(hit);
-
-				JLabel name = new JLabel(hit.getTargetName());
-				name.setFont(FontManager.getRunescapeSmallFont());
-				name.setForeground(hit.getTargetKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
-				name.setMinimumSize(new Dimension(0, name.getPreferredSize().height));
-
-				JLabel amount = new JLabel(CombatLogFormatter.amountLabel(hit), SwingConstants.RIGHT);
-				amount.setFont(FontManager.getRunescapeSmallFont());
-				amount.setForeground(CombatLogOverlay.amountColor(hit));
-				holdWidth(amount);
-
-				JPanel nameAndIcon = new JPanel(new BorderLayout(6, 0));
-				nameAndIcon.setOpaque(false);
-				nameAndIcon.add(icon, BorderLayout.WEST);
-				nameAndIcon.add(name, BorderLayout.CENTER);
-
-				JPanel damage = new JPanel(new BorderLayout(4, 0));
-				damage.setOpaque(false);
-				JLabel weapon = weaponIcon(hit);
-				if (weapon != null)
+				for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 				{
-					damage.add(weapon, BorderLayout.WEST);
+					hitsPanel.add(attackRow(attack, index, zone));
+					index++;
 				}
-				damage.add(amount, BorderLayout.EAST);
-
-				row.add(nameAndIcon, BorderLayout.CENTER);
-				row.add(damage, BorderLayout.EAST);
-				row.setToolTipText(CombatLogFormatter.formatTime(hit.getTimeMillis(), zone) + "  " + hit.describe());
-				fitRow(row);
-				hitsPanel.add(row);
-				index++;
 			}
+			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
+			if (footer != null)
+			{
+				JLabel footerLabel = new JLabel("<html><body style='width:190px'>" + footer + "</body></html>");
+				footerLabel.setFont(FontManager.getRunescapeSmallFont());
+				footerLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+				footerLabel.setAlignmentX(LEFT_ALIGNMENT);
+				hitsPanel.add(footerLabel);
+			}
+			String pace = FightSummary.pace(snapshot.getFights(), fight.getName(), fight.getKind());
+			if (pace != null && snapshot.getView() != DamageView.INCOMING)
+			{
+				JLabel paceLabel = new JLabel("<html><body style='width:190px'>" + pace + "</body></html>");
+				paceLabel.setFont(FontManager.getRunescapeSmallFont());
+				paceLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+				paceLabel.setAlignmentX(LEFT_ALIGNMENT);
+				hitsPanel.add(paceLabel);
+			}
+			hitsPanel.add(groupSeparator());
+			fightIndex++;
 		}
+	}
+
+	private JPanel fightHeader(Fight fight, CombatSnapshot snapshot, boolean open)
+	{
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(4, 4, 4, 6));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel toggle = new JLabel(open ? "-" : "+");
+		toggle.setFont(FontManager.getRunescapeSmallFont());
+		toggle.setForeground(ColorScheme.BRAND_ORANGE);
+		Dimension toggleSize = new Dimension(12, toggle.getPreferredSize().height);
+		toggle.setPreferredSize(toggleSize);
+		toggle.setMinimumSize(toggleSize);
+
+		HitRecord sample = fight.getHits().isEmpty() ? null : fight.getHits().get(0);
+		JLabel icon = sample == null ? new JLabel() : monsterIcon(sample);
+		JLabel name = new JLabel(fight.getName());
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(fight.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
+
+		boolean incoming = snapshot.getView() == DamageView.INCOMING;
+		int shownDamage = incoming ? fight.damageTaken() : fight.weaponDamage();
+		String extra = !incoming && fight.extraDamage() > 0 ? "+" + fight.extraDamage() : "";
+		JLabel amount = new JLabel(extra, SwingConstants.RIGHT);
+		amount.setFont(FontManager.getRunescapeSmallFont());
+		amount.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		amount.setIcon(new ImageIcon(Hitsplats.amount(incoming, CombatLogFormatter.formatDamage(shownDamage))));
+		amount.setHorizontalTextPosition(SwingConstants.LEADING);
+		amount.setIconTextGap(extra.isEmpty() ? 0 : 4);
+		holdWidth(amount);
+
+		JPanel nameAndIcon = new JPanel(new BorderLayout(4, 0));
+		nameAndIcon.setOpaque(false);
+		nameAndIcon.add(toggle, BorderLayout.WEST);
+		nameAndIcon.add(icon, BorderLayout.CENTER);
+		JPanel named = new JPanel(new BorderLayout(4, 0));
+		named.setOpaque(false);
+		named.add(nameAndIcon, BorderLayout.WEST);
+		named.add(name, BorderLayout.CENTER);
+
+		row.add(named, BorderLayout.CENTER);
+		row.add(amount, BorderLayout.EAST);
+		row.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent event)
+			{
+				expanded.put(fight.getId(), !open);
+				refresh();
+			}
+		});
+		fitRow(row);
+		return row;
+	}
+
+	private JPanel attackRow(AttackRow attack, int index, ZoneId zone)
+	{
+		HitRecord hit = attack.first();
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
+		row.setBorder(new EmptyBorder(3, 6, 3, 6));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel icon = monsterIcon(hit);
+		String label = hit.getTargetName();
+		JLabel name = new JLabel(label);
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(hit.getTargetKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
+		name.setMinimumSize(new Dimension(0, name.getPreferredSize().height));
+
+		String[] parts = Hitsplats.parts(attack);
+		JLabel amount = new JLabel(parts[1], SwingConstants.RIGHT);
+		amount.setFont(FontManager.getRunescapeSmallFont());
+		amount.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		amount.setIcon(new ImageIcon(Hitsplats.amount(hit.getDirection() == DamageDirection.INCOMING, parts[0])));
+		amount.setHorizontalTextPosition(SwingConstants.LEADING);
+		amount.setIconTextGap(parts[1].isEmpty() ? 0 : 4);
+		holdWidth(amount);
+
+		JPanel nameAndIcon = new JPanel(new BorderLayout(6, 0));
+		nameAndIcon.setOpaque(false);
+		nameAndIcon.add(icon, BorderLayout.WEST);
+		nameAndIcon.add(name, BorderLayout.CENTER);
+
+		JPanel damage = new JPanel(new BorderLayout(4, 0));
+		damage.setOpaque(false);
+		damage.add(weaponSlot(hit), BorderLayout.WEST);
+		damage.add(amount, BorderLayout.EAST);
+
+		row.add(nameAndIcon, BorderLayout.CENTER);
+		row.add(damage, BorderLayout.EAST);
+		row.setToolTipText(CombatLogFormatter.formatTime(hit.getTimeMillis(), zone) + "  " + hit.describe());
+		fitRow(row);
+		return row;
 	}
 
 	private static JPanel groupSeparator()
@@ -417,7 +725,7 @@ class CombatLogPanel extends PluginPanel
 
 	private void onCopy()
 	{
-		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), config.recentSeconds());
+		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
 		if (snapshot.isEmpty())
 		{
 			return;
@@ -455,21 +763,25 @@ class CombatLogPanel extends PluginPanel
 		return icon;
 	}
 
-	private JLabel weaponIcon(HitRecord hit)
+	private JLabel weaponSlot(HitRecord hit)
 	{
-		Integer itemId = hit.getWeaponItemId();
-		if (itemId == null)
-		{
-			return null;
-		}
-		BufferedImage image = weaponIcons.get(itemId);
-		if (image == null)
-		{
-			return null;
-		}
-		JLabel icon = new JLabel(new ImageIcon(image));
+		JLabel icon = new JLabel();
 		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
 		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(WeaponIcons.SIZE, WeaponIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		Integer itemId = hit.getWeaponItemId();
+		if (itemId != null)
+		{
+			BufferedImage image = weaponIcons.get(itemId);
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+		}
 		return icon;
 	}
 

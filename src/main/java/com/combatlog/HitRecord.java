@@ -17,8 +17,23 @@ public final class HitRecord
 	private final HitKind kind;
 	@Nullable
 	private final String tint;
+	private final int tick;
+	private final DamageDirection direction;
+	private final DamageSource source;
+	private final boolean special;
+	private final int overkill;
+	@Nullable
+	private final Long attackId;
+	@Nullable
+	private final Long fightId;
+	private final int sequence;
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint)
+	{
+		this(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, 0, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
+	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence)
 	{
 		this.timeMillis = timeMillis;
 		this.targetName = targetName;
@@ -29,6 +44,20 @@ public final class HitRecord
 		this.amount = amount;
 		this.kind = kind;
 		this.tint = tint;
+		this.tick = tick;
+		this.direction = direction == null ? DamageDirection.OUTGOING : direction;
+		this.source = source == null ? DamageSource.WEAPON : source;
+		this.special = special;
+		this.overkill = Math.max(0, overkill);
+		this.attackId = attackId;
+		this.fightId = fightId;
+		this.sequence = sequence;
+	}
+
+	public HitRecord withMeta(int tick, @Nullable Long fightId, @Nullable Long attackId, @Nullable Integer weaponItemId, boolean special, DamageSource source, int overkill, int sequence)
+	{
+		Integer weapon = weaponItemId != null && weaponItemId > 0 ? weaponItemId : this.weaponItemId;
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence);
 	}
 
 	public long getTimeMillis()
@@ -80,9 +109,69 @@ public final class HitRecord
 		return tint;
 	}
 
+	public int getTick()
+	{
+		return tick;
+	}
+
+	public DamageDirection getDirection()
+	{
+		return direction;
+	}
+
+	public DamageSource getSource()
+	{
+		return source;
+	}
+
+	public boolean isSpecial()
+	{
+		return special;
+	}
+
+	public int getOverkill()
+	{
+		return overkill;
+	}
+
+	@Nullable
+	public Long getAttackId()
+	{
+		return attackId;
+	}
+
+	@Nullable
+	public Long getFightId()
+	{
+		return fightId;
+	}
+
+	public int getSequence()
+	{
+		return sequence;
+	}
+
 	public boolean isBlock()
 	{
 		return kind == HitKind.BLOCK;
+	}
+
+	public boolean countsTowardWeaponDamage()
+	{
+		return direction == DamageDirection.OUTGOING && source == DamageSource.WEAPON && !isBlock();
+	}
+
+	public boolean visibleIn(DamageView view)
+	{
+		if (view == DamageView.INCOMING)
+		{
+			return direction == DamageDirection.INCOMING;
+		}
+		if (view == DamageView.OUTGOING)
+		{
+			return direction == DamageDirection.OUTGOING;
+		}
+		return true;
 	}
 
 	public String describe()
@@ -112,6 +201,10 @@ public final class HitRecord
 		if (kind != HitKind.BLOCK)
 		{
 			description.append(" for ").append(amount);
+		}
+		if (special)
+		{
+			description.append(" (spec)");
 		}
 		return description.toString();
 	}

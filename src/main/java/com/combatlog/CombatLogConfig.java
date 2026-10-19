@@ -5,7 +5,6 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
-import net.runelite.client.config.Units;
 
 @ConfigGroup(CombatLogConfig.GROUP)
 public interface CombatLogConfig extends Config
@@ -63,20 +62,6 @@ public interface CombatLogConfig extends Config
 		return 300;
 	}
 
-	@Range(min = 1, max = 120)
-	@Units(Units.SECONDS)
-	@ConfigItem(
-		keyName = "recentSeconds",
-		name = "Recent DPS window",
-		description = "How many seconds of damage the recent DPS number uses.",
-		position = 4,
-		section = logSection
-	)
-	default int recentSeconds()
-	{
-		return 10;
-	}
-
 	@ConfigItem(
 		keyName = "clearOnLogout",
 		name = "Clear on logout",
@@ -90,9 +75,21 @@ public interface CombatLogConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "damageView",
+		name = "Damage view",
+		description = "Outgoing shows your hits, Incoming shows damage you take, Both shows them together.",
+		position = 6,
+		section = logSection
+	)
+	default DamageView damageView()
+	{
+		return DamageView.OUTGOING;
+	}
+
+	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show overlay",
-		description = "Show recent hits and session DPS on the game view.",
+		description = "Show recent hits on the game view.",
 		position = 11,
 		section = overlaySection
 	)
