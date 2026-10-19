@@ -31,6 +31,27 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void recordsDamageTakenFromThePlayersOwnHitsplat()
+	{
+		HitRecord hit = HitCapture.captureIncoming(HitsplatID.DAMAGE_ME, 1, "Barbarian", TargetKind.NPC, 326, 4, 1_000L, 2, true);
+		assertEquals(DamageDirection.INCOMING, hit.getDirection());
+		assertEquals(1, hit.getAmount());
+		assertEquals("Barbarian", hit.getTargetName());
+
+		HitRecord poison = HitCapture.captureIncoming(HitsplatID.POISON, 4, "Barbarian", TargetKind.NPC, 326, 4, 1_000L, 2, true);
+		assertEquals(DamageSource.POISON, poison.getSource());
+		assertEquals(DamageDirection.INCOMING, poison.getDirection());
+		assertEquals("4 poison", CombatLogFormatter.amountLabel(poison));
+		assertNull(HitCapture.capture(HitsplatID.POISON, 4, "Barbarian", TargetKind.NPC, 326, 4, null, false, true, true, 1_000L));
+		HitRecord tinted = HitCapture.capture(HitsplatID.DAMAGE_ME_CYAN, 10, "Goblin", TargetKind.NPC, 301, 4, null, false, true, true, 1_000L);
+		assertEquals("10 cyan", CombatLogFormatter.amountLabel(tinted));
+		assertNull(HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Barbarian", TargetKind.NPC, 326, 4, 1_000L, 2, false));
+		HitRecord block = HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Barbarian", TargetKind.NPC, 326, 4, 1_000L, 2, true);
+		assertEquals(HitKind.BLOCK, block.getKind());
+		assertEquals(DamageDirection.INCOMING, block.getDirection());
+	}
+
+	@Test
 	public void classifiesMaxHitsTintsAndBlocks()
 	{
 		HitRecord max = HitCapture.capture(HitsplatID.DAMAGE_MAX_ME_YELLOW, 42, "Tekton", TargetKind.NPC, null, null, null, false, true, true, 5_000L);
@@ -377,12 +398,31 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void specialAttackShowsOnlyTheSum()
+	{
+		HitRecord first = attackHit(1, 4, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 1);
+		HitRecord second = attackHit(1, 8, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 2);
+		List<AttackRow> rows = AttackRow.group(java.util.Arrays.asList(first, second));
+		assertEquals(1, rows.size());
+		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
+	}
+
+	@Test
 	public void thrallAndVengeanceStayOutOfWeaponDps()
 	{
 		assertEquals(DamageSource.THRALL, DamageSources.classify(false, false, true, 3, 3, false));
-		assertEquals(DamageSource.WEAPON, DamageSources.classify(false, true, true, 3, 3, true));
+		assertEquals(DamageSource.THRALL, DamageSources.classify(false, true, true, 2, 3, false));
+		assertEquals(DamageSource.WEAPON, DamageSources.classify(false, true, true, 4, 3, false));
+		assertEquals(DamageSource.WEAPON, DamageSources.classify(false, true, true, 3, 2, false));
 		assertEquals(DamageSource.VENGEANCE, DamageSources.classify(false, false, false, 12, 3, true));
 		assertEquals(DamageSource.BURN, DamageSources.classify(true, false, false, 8, 3, false));
+		assertEquals(1, Thralls.maxHit(10878));
+		assertEquals(2, Thralls.maxHit(10882));
+		assertEquals(3, Thralls.maxHit(10886));
+		assertEquals(1, Thralls.pick(new int[] {20, 2}, new boolean[] {false, false}, 1, 3, true));
+		assertEquals(0, Thralls.pick(new int[] {2, 0}, new boolean[] {false, true}, 1, 3, true));
+		assertEquals(-1, Thralls.pick(new int[] {3}, new boolean[] {false}, 0, 2, true));
+		assertEquals(-1, Thralls.pick(new int[] {2}, new boolean[] {false}, 0, 3, false));
 
 		CombatLog log = new CombatLog(10);
 		log.add(npcHit(1, "Goblin", 4, 301, 10));

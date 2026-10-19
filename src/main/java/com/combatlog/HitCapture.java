@@ -59,15 +59,28 @@ public final class HitCapture
 		@Nullable Integer npcId,
 		@Nullable Integer npcIndex,
 		long nowMillis,
-		int tick)
+		int tick,
+		boolean includeBlocks)
 	{
 		HitStyle style = HitStyle.fromIncomingType(hitsplatType);
-		if (style == null || targetKind == null || amount <= 0)
+		if (style == null || targetKind == null)
+		{
+			return null;
+		}
+		if (style.getKind() == HitKind.BLOCK)
+		{
+			if (!includeBlocks)
+			{
+				return null;
+			}
+		}
+		else if (amount <= 0)
 		{
 			return null;
 		}
 		String name = actorName == null || actorName.isEmpty() ? "Taken" : actorName;
-		return new HitRecord(nowMillis, name, targetKind, npcId, npcIndex, null, amount, style.getKind(), style.getTint(), tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0);
+		DamageSource source = HitStyle.incomingSource(hitsplatType);
+		return new HitRecord(nowMillis, name, targetKind, npcId, npcIndex, null, amount, style.getKind(), style.getTint(), tick, DamageDirection.INCOMING, source, false, 0, null, null, 0);
 	}
 
 	@Nullable

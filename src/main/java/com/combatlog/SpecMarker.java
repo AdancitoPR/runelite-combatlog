@@ -21,6 +21,15 @@ public final class SpecMarker
 		this.remaining = SpecWeapons.splats(weaponId);
 	}
 
+	public int reserved(@Nullable Integer npcIndex)
+	{
+		if (remaining <= 0 || !Objects.equals(this.npcIndex, npcIndex))
+		{
+			return 0;
+		}
+		return remaining;
+	}
+
 	public boolean claim(@Nullable Integer npcIndex, DamageDirection direction, DamageSource source)
 	{
 		if (remaining <= 0 || direction != DamageDirection.OUTGOING || source != DamageSource.WEAPON)

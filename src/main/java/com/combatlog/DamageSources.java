@@ -16,13 +16,13 @@ public final class DamageSources
 		{
 			return DamageSource.BURN;
 		}
+		if (thrallSwing && amount > 0 && amount <= thrallMax)
+		{
+			return DamageSource.THRALL;
+		}
 		if (ownAttack)
 		{
 			return DamageSource.WEAPON;
-		}
-		if (thrallSwing && amount <= thrallMax)
-		{
-			return DamageSource.THRALL;
 		}
 		if (vengeanceCleared)
 		{

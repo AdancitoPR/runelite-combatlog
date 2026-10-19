@@ -6,6 +6,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public final class CombatLogFormatter
 {
@@ -18,6 +19,19 @@ public final class CombatLogFormatter
 	public static String formatTime(long timeMillis, ZoneId zone)
 	{
 		return TIME.format(Instant.ofEpochMilli(timeMillis).atZone(zone));
+	}
+
+	public static int thrallDamage(Iterable<HitRecord> hits)
+	{
+		int total = 0;
+		for (HitRecord hit : hits)
+		{
+			if (hit.getSource() == DamageSource.THRALL && !hit.isBlock())
+			{
+				total += hit.getAmount();
+			}
+		}
+		return total;
 	}
 
 	public static String formatDamage(long damage)
@@ -49,27 +63,64 @@ public final class CombatLogFormatter
 		{
 			text += " (" + hit.getOverkill() + " overkill)";
 		}
-		if (hit.isSpecial())
+		String effect = effectName(hit);
+		if (!effect.isEmpty())
 		{
-			text += " spec";
-		}
-		if (hit.getSource() == DamageSource.THRALL)
-		{
-			text += " thrall";
-		}
-		else if (hit.getSource() == DamageSource.VENGEANCE)
-		{
-			text += " venge";
-		}
-		else if (hit.getSource() == DamageSource.BURN)
-		{
-			text += " burn";
+			text += " " + effect;
 		}
 		return text;
 	}
 
+	public static String effectName(HitRecord hit)
+	{
+		switch (hit.getSource())
+		{
+			case THRALL:
+				return "thrall";
+			case VENGEANCE:
+				return "venge";
+			case BURN:
+				return "burn";
+			case POISON:
+				return "poison";
+			case VENOM:
+				return "venom";
+			case BLEED:
+				return "bleed";
+			case DISEASE:
+				return "disease";
+			case CORRUPTION:
+				return "corruption";
+			case DOOM:
+				return "doom";
+			case PRAYER:
+				return "prayer";
+			case SANITY:
+				return "sanity";
+			default:
+				return hit.getTint() == null ? "" : hit.getTint().toLowerCase(Locale.US);
+		}
+	}
+
 	public static String attackLabel(AttackRow row)
 	{
+		if (row.isSpecial())
+		{
+			String text = Integer.toString(row.getTotal());
+			for (HitRecord hit : row.getHits())
+			{
+				if (hit.getKind() == HitKind.MAX_HIT)
+				{
+					text += "*";
+					break;
+				}
+			}
+			if (row.getOverkill() > 0)
+			{
+				text += " (" + row.getOverkill() + " overkill)";
+			}
+			return text;
+		}
 		if (row.getHits().size() == 1)
 		{
 			return amountLabel(row.first());
@@ -96,22 +147,10 @@ public final class CombatLogFormatter
 		{
 			text += " (" + row.getOverkill() + " overkill)";
 		}
-		if (row.isSpecial())
+		String effect = effectName(row.first());
+		if (!effect.isEmpty())
 		{
-			text += " spec";
-		}
-		HitRecord first = row.first();
-		if (first.getSource() == DamageSource.THRALL)
-		{
-			text += " thrall";
-		}
-		else if (first.getSource() == DamageSource.VENGEANCE)
-		{
-			text += " venge";
-		}
-		else if (first.getSource() == DamageSource.BURN)
-		{
-			text += " burn";
+			text += " " + effect;
 		}
 		return text;
 	}

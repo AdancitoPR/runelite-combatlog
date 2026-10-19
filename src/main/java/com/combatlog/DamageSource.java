@@ -5,5 +5,13 @@ public enum DamageSource
 	WEAPON,
 	THRALL,
 	VENGEANCE,
-	BURN
+	BURN,
+	POISON,
+	VENOM,
+	BLEED,
+	DISEASE,
+	CORRUPTION,
+	DOOM,
+	PRAYER,
+	SANITY
 }

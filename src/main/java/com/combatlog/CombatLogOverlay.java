@@ -2,11 +2,15 @@ package com.combatlog;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
+import java.util.Collections;
+import java.util.List;
 import javax.inject.Inject;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.ComponentOrientation;
@@ -21,7 +25,6 @@ class CombatLogOverlay extends OverlayPanel
 	static final Color BLOCK_COLOR = new Color(150, 150, 150);
 	static final Color PLAYER_COLOR = new Color(255, 176, 140);
 	static final Color GROUP_LINE = new Color(55, 200, 90);
-
 	private final CombatLog combatLog;
 	private final CombatLogConfig config;
 	private final MonsterIcons monsterIcons;
@@ -54,24 +57,27 @@ class CombatLogOverlay extends OverlayPanel
 			return null;
 		}
 
+		Font font = FontManager.getRunescapeFont();
+		if (font != null)
+		{
+			graphics.setFont(font);
+		}
+
 		panelComponent.getChildren().add(TitleComponent.builder()
 			.text("Combat log")
 			.build());
-		if (snapshot.getView() == DamageView.INCOMING)
+		if (snapshot.getView() != DamageView.INCOMING)
 		{
-			panelComponent.getChildren().add(splatLine("Damage taken",
-				Hitsplats.amount(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken()))));
+			panelComponent.getChildren().add(amountLine("Dealt", snapshot.getTotalDamage(), DamageColors.OUTGOING));
+			int thrall = CombatLogFormatter.thrallDamage(snapshot.getHits());
+			if (thrall > 0)
+			{
+				panelComponent.getChildren().add(amountLine("Thrall", thrall, Color.WHITE));
+			}
 		}
-		else if (snapshot.getView() == DamageView.BOTH && snapshot.getDamageTaken() > 0)
+		if (snapshot.getView() != DamageView.OUTGOING)
 		{
-			panelComponent.getChildren().add(splatLine("Total damage", Hitsplats.beside(
-				Hitsplats.amount(false, CombatLogFormatter.formatDamage(snapshot.getTotalDamage())),
-				Hitsplats.amount(true, CombatLogFormatter.formatDamage(snapshot.getDamageTaken())))));
-		}
-		else
-		{
-			panelComponent.getChildren().add(splatLine("Total damage",
-				Hitsplats.amount(false, CombatLogFormatter.formatDamage(snapshot.getTotalDamage()))));
+			panelComponent.getChildren().add(amountLine("Taken", snapshot.getDamageTaken(), DamageColors.INCOMING));
 		}
 
 		int shown = 0;
@@ -95,7 +101,13 @@ class CombatLogOverlay extends OverlayPanel
 					.leftColor(BLOCK_COLOR)
 					.build());
 			}
-			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
+			panelComponent.getChildren().add(fightTitle(fight));
+			List<AttackRow> attacks = AttackRow.group(fight.visibleHits(snapshot.getView()));
+			if (snapshot.getView() == DamageView.BOTH)
+			{
+				Collections.reverse(attacks);
+			}
+			for (AttackRow attack : attacks)
 			{
 				if (shown >= limit)
 				{
@@ -123,43 +135,71 @@ class CombatLogOverlay extends OverlayPanel
 		}
 	}
 
-	private LayoutableRenderableEntity splatLine(String label, BufferedImage splat)
+	private static LineComponent amountLine(String label, long amount, Color color)
+	{
+		return LineComponent.builder()
+			.left(label)
+			.right(CombatLogFormatter.formatDamage(amount))
+			.rightColor(color)
+			.build();
+	}
+
+	private LayoutableRenderableEntity fightTitle(Fight fight)
 	{
 		LineComponent line = LineComponent.builder()
-			.left(label)
-			.right("")
+			.left(fight.getName())
+			.leftColor(fight.getKind() == TargetKind.PLAYER ? PLAYER_COLOR : Color.WHITE)
+			.right(CombatLogFormatter.formatDamage(fight.damageDone()))
+			.rightColor(DamageColors.OUTGOING)
 			.build();
-		return new DamageLine(line, splat, "");
+		BufferedImage monster = fight.getNpcId() == null ? null : monsterIcons.get(fight.getNpcId());
+		if (monster == null)
+		{
+			return line;
+		}
+		return SplitComponent.builder()
+			.first(new ImageComponent(monster))
+			.second(line)
+			.orientation(ComponentOrientation.HORIZONTAL)
+			.gap(new Point(4, 0))
+			.build();
 	}
 
 	private LayoutableRenderableEntity hitRow(AttackRow attack)
 	{
 		HitRecord hit = attack.first();
+		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
 		String[] parts = Hitsplats.parts(attack);
-		String name = hit.getTargetName();
-		LineComponent line = LineComponent.builder()
-			.left(name)
-			.leftColor(hit.getTargetKind() == TargetKind.PLAYER ? PLAYER_COLOR : Color.WHITE)
-			.right(parts[1])
-			.rightColor(BLOCK_COLOR)
+		LineComponent kind = LineComponent.builder()
+			.left(incoming ? "Taken" : "Dealt")
+			.leftColor(incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
 			.build();
-
-		BufferedImage splat = Hitsplats.amount(hit.getDirection() == DamageDirection.INCOMING, parts[0]);
-		BufferedImage weapon = weaponIcon(hit);
-		BufferedImage mark = weapon == null ? splat : Hitsplats.beside(weapon, splat);
-		LayoutableRenderableEntity row = new DamageLine(line, mark, parts[1]);
-
-		BufferedImage monster = hit.getNpcId() == null ? null : monsterIcons.get(hit.getNpcId());
-		if (monster == null)
-		{
-			return row;
-		}
-		return SplitComponent.builder()
-			.first(new ImageComponent(monster))
-			.second(row)
+		LineComponent amount = LineComponent.builder()
+			.right(parts[0])
+			.rightColor(DamageColors.forHit(hit))
+			.build();
+		BufferedImage weapon = hitIcon(hit);
+		LayoutableRenderableEntity figures = weapon == null ? amount : SplitComponent.builder()
+			.first(new ImageComponent(weapon))
+			.second(amount)
 			.orientation(ComponentOrientation.HORIZONTAL)
 			.gap(new Point(4, 0))
 			.build();
+		return SplitComponent.builder()
+			.first(kind)
+			.second(figures)
+			.orientation(ComponentOrientation.HORIZONTAL)
+			.gap(new Point(6, 0))
+			.build();
+	}
+
+	private BufferedImage hitIcon(HitRecord hit)
+	{
+		if (hit.getSource() == DamageSource.THRALL)
+		{
+			return monsterIcons.get(Thralls.iconId(hit));
+		}
+		return weaponIcon(hit);
 	}
 
 	private BufferedImage weaponIcon(HitRecord hit)
@@ -170,73 +210,6 @@ class CombatLogOverlay extends OverlayPanel
 			return null;
 		}
 		return weaponIcons.get(itemId);
-	}
-
-	/**
-	 * Draws the row text and a sprite just to the left of the right-hand label.
-	 */
-	private static final class DamageLine implements LayoutableRenderableEntity
-	{
-		private static final int GAP = 4;
-
-		private final LineComponent line;
-		private final BufferedImage icon;
-		private final String amount;
-		private Point preferredLocation = new Point();
-		private Dimension preferredSize = new Dimension();
-		private final Rectangle bounds = new Rectangle();
-
-		private DamageLine(LineComponent line, BufferedImage icon, String amount)
-		{
-			this.line = line;
-			this.icon = icon;
-			this.amount = amount;
-		}
-
-		@Override
-		public Dimension render(Graphics2D graphics)
-		{
-			int width = Math.max(0, preferredSize.width);
-			int amountWidth = graphics.getFontMetrics().stringWidth(amount);
-			int iconX = preferredLocation.x + width - amountWidth - GAP - icon.getWidth();
-			if (iconX < preferredLocation.x)
-			{
-				iconX = preferredLocation.x;
-			}
-
-			line.setPreferredLocation(preferredLocation);
-			line.setPreferredSize(new Dimension(width, preferredSize.height));
-			Dimension lineSize = line.render(graphics);
-
-			int rowHeight = Math.max(lineSize.height, icon.getHeight());
-			int iconY = preferredLocation.y + Math.max(0, (rowHeight - icon.getHeight()) / 2);
-			ImageComponent image = new ImageComponent(icon);
-			image.setPreferredLocation(new Point(iconX, iconY));
-			image.render(graphics);
-
-			Dimension size = new Dimension(width, rowHeight);
-			bounds.setLocation(preferredLocation);
-			bounds.setSize(size);
-			return size;
-		}
-
-		@Override
-		public void setPreferredLocation(Point location)
-		{
-			preferredLocation = location;
-		}
-
-		@Override
-		public void setPreferredSize(Dimension size)
-		{
-			preferredSize = size;
-		}
-
-		@Override
-		public Rectangle getBounds()
-		{
-			return bounds;
-		}
 	}
 
 	private static final class GroupSeparator implements LayoutableRenderableEntity

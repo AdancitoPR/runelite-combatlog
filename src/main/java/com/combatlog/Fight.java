@@ -161,6 +161,11 @@ public final class Fight
 		endTick = tick;
 	}
 
+	public int damageDone()
+	{
+		return weaponDamage() + thrallDamage() + extraDamage();
+	}
+
 	public int weaponDamage()
 	{
 		int damage = 0;
@@ -192,7 +197,20 @@ public final class Fight
 		int damage = 0;
 		for (HitRecord hit : hits)
 		{
-			if (hit.getDirection() == DamageDirection.OUTGOING && !hit.isBlock() && hit.getSource() != DamageSource.WEAPON)
+			if (hit.getDirection() == DamageDirection.OUTGOING && !hit.isBlock() && hit.getSource() != DamageSource.WEAPON && hit.getSource() != DamageSource.THRALL)
+			{
+				damage += hit.getAmount();
+			}
+		}
+		return damage;
+	}
+
+	public int thrallDamage()
+	{
+		int damage = 0;
+		for (HitRecord hit : hits)
+		{
+			if (hit.getDirection() == DamageDirection.OUTGOING && hit.getSource() == DamageSource.THRALL && !hit.isBlock())
 			{
 				damage += hit.getAmount();
 			}

@@ -2,7 +2,10 @@ package com.combatlog;
 
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
@@ -84,7 +87,12 @@ public class CombatLogPlugin extends Plugin
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
 	private int vengeanceClearedTick = -1;
-	private int thrallTick = -1;
+	private int thrallMax;
+	private Integer thrallNpcId;
+	private int playerAttackTick = -1;
+	private int playerAttackSplats = 1;
+	private Integer playerAttackIndex;
+	private final List<PendingHit> pending = new ArrayList<>();
 	private int lastHitTick = -100;
 
 	@Override
@@ -121,6 +129,8 @@ public class CombatLogPlugin extends Plugin
 	public void onGameTick(GameTick event)
 	{
 		int tick = client.getTickCount();
+		flushPending(tick);
+		refreshThrall();
 		Player player = client.getLocalPlayer();
 		boolean interacting = player != null && player.getInteracting() != null;
 		if (interacting || tick - lastHitTick <= 8)
@@ -166,11 +176,15 @@ public class CombatLogPlugin extends Plugin
 			Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
+			playerAttackTick = tick;
+			playerAttackIndex = index;
+			int reserved = specMarker.reserved(index);
+			playerAttackSplats = Math.max(reserved, attackSplats(weapon, target));
 			return;
 		}
-		if (actor instanceof NPC && actor.getName() != null && actor.getName().toLowerCase().contains("thrall"))
+		if (actor instanceof NPC && isThrall((NPC) actor))
 		{
-			thrallTick = tick;
+			rememberThrall((NPC) actor);
 		}
 	}
 
@@ -260,19 +274,12 @@ public class CombatLogPlugin extends Plugin
 			return;
 		}
 
-		boolean ownAttack = combatLog.hasRecentAttack(npcIndex, tick);
-		DamageSource source = DamageSources.classify(burn, ownAttack, thrallTick == tick, amount, 3, vengeanceClearedTick == tick && !ownAttack);
-		boolean special = specMarker.claim(npcIndex, DamageDirection.OUTGOING, source);
+		boolean recentAttack = combatLog.hasRecentAttack(npcIndex, tick);
 		int overkill = overkill(actor, npcIndex, npcId, amount);
-		record = record.withMeta(tick, null, null, weapon, special, source, overkill, 0);
-		combatLog.add(record);
+		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
+		record = record.withMeta(tick, null, null, weapon, false, burn ? DamageSource.BURN : DamageSource.WEAPON, overkill, 0);
+		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick && !recentAttack, weapon, killed));
 		lastHitTick = tick;
-		if (actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0)
-		{
-			combatLog.closeLife(npcIndex, tick);
-		}
-		log.debug("{}", record.describe());
-		queueRefresh();
 	}
 
 	@Subscribe
@@ -330,7 +337,8 @@ public class CombatLogPlugin extends Plugin
 			npcId,
 			npcIndex,
 			System.currentTimeMillis(),
-			tick);
+			tick,
+			config.includeBlocks());
 		if (record == null)
 		{
 			return;
@@ -346,6 +354,11 @@ public class CombatLogPlugin extends Plugin
 		if (player == null)
 		{
 			return null;
+		}
+		Actor target = player.getInteracting();
+		if (target instanceof NPC)
+		{
+			return (NPC) target;
 		}
 		NPC found = null;
 		for (NPC npc : client.getNpcs())
@@ -424,6 +437,176 @@ public class CombatLogPlugin extends Plugin
 			return composition.getId();
 		}
 		return npc.getId();
+	}
+
+	private void refreshThrall()
+	{
+		for (NPC npc : client.getNpcs())
+		{
+			if (!isThrall(npc))
+			{
+				continue;
+			}
+			rememberThrall(npc);
+			return;
+		}
+		thrallNpcId = null;
+		thrallMax = 0;
+	}
+
+	private void rememberThrall(NPC npc)
+	{
+		thrallNpcId = npcId(npc);
+		int known = Thralls.maxHit(thrallNpcId);
+		thrallMax = known > 0 ? known : 3;
+	}
+
+	private static boolean isThrall(NPC npc)
+	{
+		if (npc.getName() != null && npc.getName().toLowerCase().contains("thrall"))
+		{
+			return true;
+		}
+		Integer id = npcId(npc);
+		return id != null && Thralls.maxHit(id) > 0;
+	}
+
+	private void flushPending(int currentTick)
+	{
+		if (pending.isEmpty())
+		{
+			return;
+		}
+		List<PendingHit> ready = new ArrayList<>();
+		Iterator<PendingHit> iterator = pending.iterator();
+		while (iterator.hasNext())
+		{
+			PendingHit hit = iterator.next();
+			if (hit.tick < currentTick)
+			{
+				ready.add(hit);
+				iterator.remove();
+			}
+		}
+		int index = 0;
+		while (index < ready.size())
+		{
+			int tick = ready.get(index).tick;
+			int end = index + 1;
+			while (end < ready.size() && ready.get(end).tick == tick)
+			{
+				end++;
+			}
+			classify(ready.subList(index, end));
+			index = end;
+		}
+		if (!ready.isEmpty())
+		{
+			queueRefresh();
+		}
+	}
+
+	private void classify(List<PendingHit> hits)
+	{
+		int tick = hits.get(0).tick;
+		boolean swung = thrallMax > 0 && thrallNpcId != null;
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			if (hit.burn)
+			{
+				continue;
+			}
+			eligible.add(i);
+		}
+		int slots = 0;
+		if (playerAttackTick == tick)
+		{
+			slots = Math.max(1, playerAttackSplats);
+		}
+		int[] amounts = new int[eligible.size()];
+		boolean[] blocks = new boolean[eligible.size()];
+		for (int i = 0; i < eligible.size(); i++)
+		{
+			PendingHit hit = hits.get(eligible.get(i));
+			amounts[i] = hit.record.getAmount();
+			blocks[i] = hit.record.isBlock();
+		}
+		int picked = Thralls.pick(amounts, blocks, slots, thrallMax, swung && thrallMax > 0);
+		int thrallAt = picked < 0 ? -1 : eligible.get(picked);
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			DamageSource source = hit.burn
+				? DamageSource.BURN
+				: i == thrallAt
+					? DamageSource.THRALL
+					: hit.vengeance
+						? DamageSource.VENGEANCE
+						: DamageSource.WEAPON;
+			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source);
+			HitRecord record = hit.record.withMeta(hit.tick, null, null, source == DamageSource.THRALL ? null : hit.weapon, special, source, hit.record.getOverkill(), 0);
+			if (source == DamageSource.THRALL)
+			{
+				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
+			}
+			combatLog.add(record);
+			if (hit.killed)
+			{
+				combatLog.closeLife(hit.npcIndex, hit.tick);
+			}
+			log.debug("{} [{}]", record.describe(), record.getSource());
+		}
+	}
+
+	private static int attackSplats(Integer weaponId, Actor target)
+	{
+		if (weaponId == null)
+		{
+			return 1;
+		}
+		switch (weaponId)
+		{
+			case 22325:
+			case 25736:
+			case 25739:
+				if (target instanceof NPC)
+				{
+					NPCComposition composition = ((NPC) target).getTransformedComposition();
+					if (composition != null && composition.getSize() > 1)
+					{
+						return 3;
+					}
+				}
+				return 1;
+			case 28997:
+				return 2;
+			default:
+				return 1;
+		}
+	}
+
+	private static final class PendingHit
+	{
+		private final int tick;
+		private final HitRecord record;
+		private final Integer npcIndex;
+		private final boolean burn;
+		private final boolean vengeance;
+		private final Integer weapon;
+		private final boolean killed;
+
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeance, Integer weapon, boolean killed)
+		{
+			this.tick = tick;
+			this.record = record;
+			this.npcIndex = npcIndex;
+			this.burn = burn;
+			this.vengeance = vengeance;
+			this.weapon = weapon;
+			this.killed = killed;
+		}
 	}
 
 	private void queueRefresh()

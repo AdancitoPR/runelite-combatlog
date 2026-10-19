@@ -24,7 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 @Singleton
 class MonsterIcons
 {
-	static final int SIZE = 22;
+	static final int SIZE = 26;
 	private static final int MAX_BYTES = 2_000_000;
 	private static final String ICON_URL = "https://chisel.weirdgloop.org/static/img/osrs-npc/%d_128.png";
 

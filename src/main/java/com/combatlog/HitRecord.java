@@ -27,6 +27,8 @@ public final class HitRecord
 	@Nullable
 	private final Long fightId;
 	private final int sequence;
+	@Nullable
+	private final Integer sourceNpcId;
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint)
 	{
@@ -34,6 +36,11 @@ public final class HitRecord
 	}
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence)
+	{
+		this(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, null);
+	}
+
+	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId)
 	{
 		this.timeMillis = timeMillis;
 		this.targetName = targetName;
@@ -52,12 +59,23 @@ public final class HitRecord
 		this.attackId = attackId;
 		this.fightId = fightId;
 		this.sequence = sequence;
+		this.sourceNpcId = sourceNpcId != null && sourceNpcId > 0 ? sourceNpcId : null;
 	}
 
 	public HitRecord withMeta(int tick, @Nullable Long fightId, @Nullable Long attackId, @Nullable Integer weaponItemId, boolean special, DamageSource source, int overkill, int sequence)
 	{
 		Integer weapon = weaponItemId != null && weaponItemId > 0 ? weaponItemId : this.weaponItemId;
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+	}
+
+	public HitRecord withSourceNpc(@Nullable Integer sourceNpcId)
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+	}
+
+	public HitRecord asSource(DamageSource source, @Nullable Integer weaponItemId, @Nullable Integer sourceNpcId)
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
 	}
 
 	public long getTimeMillis()
@@ -149,6 +167,12 @@ public final class HitRecord
 	public int getSequence()
 	{
 		return sequence;
+	}
+
+	@Nullable
+	public Integer getSourceNpcId()
+	{
+		return sourceNpcId;
 	}
 
 	public boolean isBlock()

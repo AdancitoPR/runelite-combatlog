@@ -20,7 +20,7 @@ import net.runelite.client.util.AsyncBufferedImage;
 @Singleton
 class WeaponIcons
 {
-	static final int SIZE = 20;
+	static final int SIZE = 24;
 
 	private final ItemManager itemManager;
 	private final ConcurrentHashMap<Integer, BufferedImage> icons = new ConcurrentHashMap<>();

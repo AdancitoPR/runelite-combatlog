@@ -44,6 +44,8 @@ final class Hitsplats
 	private static final Color BLUE_DARK = new Color(8, 12, 150);
 	private static final Color BLUE_TIP = new Color(0, 8, 96);
 
+	private static final double SPRITE_SCALE = 1.5;
+
 	private static final Map<String, BufferedImage> CACHE = new HashMap<>();
 
 	private Hitsplats()
@@ -84,14 +86,18 @@ final class Hitsplats
 		{
 			return cached;
 		}
-		Font font = FontManager.getRunescapeSmallFont();
+		Font font = FontManager.getRunescapeFont();
 		if (font == null)
 		{
-			font = new Font(Font.DIALOG, Font.BOLD, 12);
+			font = FontManager.getRunescapeSmallFont();
+		}
+		if (font == null)
+		{
+			font = new Font(Font.DIALOG, Font.BOLD, 15);
 		}
 		else
 		{
-			font = font.deriveFont(Font.BOLD, 12f);
+			font = font.deriveFont(Font.BOLD, 15f);
 		}
 		BufferedImage image = paint(incoming, shown, font);
 		CACHE.put(key, image);
@@ -147,12 +153,15 @@ final class Hitsplats
 	private static BufferedImage paint(boolean incoming, String text, Font font)
 	{
 		int textWidth = 0;
+		int textHeight = 0;
 		if (text != null)
 		{
 			BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
 			Graphics2D probeGraphics = probe.createGraphics();
 			probeGraphics.setFont(font);
-			textWidth = probeGraphics.getFontMetrics().stringWidth(text);
+			FontMetrics metrics = probeGraphics.getFontMetrics();
+			textWidth = metrics.stringWidth(text);
+			textHeight = metrics.getHeight();
 			probeGraphics.dispose();
 		}
 		char[][] grid = shape(textWidth + 6);
@@ -179,6 +188,19 @@ final class Hitsplats
 				image.setRGB(x, y, color.getRGB());
 			}
 		}
+		if (text != null && textHeight + 4 > rows)
+		{
+			int targetHeight = textHeight + 4;
+			int targetWidth = Math.max(cols, (int) Math.round(cols * (targetHeight / (double) rows)));
+			BufferedImage scaled = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_ARGB);
+			Graphics2D scaledGraphics = scaled.createGraphics();
+			scaledGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+			scaledGraphics.drawImage(image, 0, 0, targetWidth, targetHeight, null);
+			scaledGraphics.dispose();
+			image = scaled;
+			cols = targetWidth;
+			rows = targetHeight;
+		}
 		if (text != null)
 		{
 			Graphics2D g = image.createGraphics();
@@ -203,7 +225,23 @@ final class Hitsplats
 			g.drawString(text, x, y);
 			g.dispose();
 		}
-		return image;
+		return enlarge(image);
+	}
+
+	private static BufferedImage enlarge(BufferedImage image)
+	{
+		int width = Math.max(1, (int) Math.round(image.getWidth() * SPRITE_SCALE));
+		int height = Math.max(1, (int) Math.round(image.getHeight() * SPRITE_SCALE));
+		if (width == image.getWidth() && height == image.getHeight())
+		{
+			return image;
+		}
+		BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = scaled.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+		g.drawImage(image, 0, 0, width, height, null);
+		g.dispose();
+		return scaled;
 	}
 
 	private static char[][] shape(int minCore)

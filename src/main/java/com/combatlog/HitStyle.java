@@ -72,6 +72,12 @@ public final class HitStyle
 	@Nullable
 	public static HitStyle fromIncomingType(int hitsplatType)
 	{
+		// Damage on the local player uses the same "me" ids as damage you deal.
+		HitStyle onSelf = fromHitsplatType(hitsplatType);
+		if (onSelf != null)
+		{
+			return onSelf;
+		}
 		switch (hitsplatType)
 		{
 			case HitsplatID.DAMAGE_OTHER:
@@ -86,8 +92,47 @@ public final class HitStyle
 				return new HitStyle(HitKind.HIT, "White");
 			case HitsplatID.DAMAGE_OTHER_POISE:
 				return new HitStyle(HitKind.HIT, "Poise");
+			case HitsplatID.BLOCK_OTHER:
+				return new HitStyle(HitKind.BLOCK, null);
+			case HitsplatID.POISON:
+			case HitsplatID.VENOM:
+			case HitsplatID.BLEED:
+			case HitsplatID.BURN:
+			case HitsplatID.DISEASE:
+			case HitsplatID.CORRUPTION:
+			case HitsplatID.DOOM:
+			case HitsplatID.PRAYER_DRAIN:
+			case HitsplatID.SANITY_DRAIN:
+				return new HitStyle(HitKind.HIT, null);
 			default:
 				return null;
+		}
+	}
+
+	public static DamageSource incomingSource(int hitsplatType)
+	{
+		switch (hitsplatType)
+		{
+			case HitsplatID.POISON:
+				return DamageSource.POISON;
+			case HitsplatID.VENOM:
+				return DamageSource.VENOM;
+			case HitsplatID.BLEED:
+				return DamageSource.BLEED;
+			case HitsplatID.BURN:
+				return DamageSource.BURN;
+			case HitsplatID.DISEASE:
+				return DamageSource.DISEASE;
+			case HitsplatID.CORRUPTION:
+				return DamageSource.CORRUPTION;
+			case HitsplatID.DOOM:
+				return DamageSource.DOOM;
+			case HitsplatID.PRAYER_DRAIN:
+				return DamageSource.PRAYER;
+			case HitsplatID.SANITY_DRAIN:
+				return DamageSource.SANITY;
+			default:
+				return DamageSource.WEAPON;
 		}
 	}
 }
