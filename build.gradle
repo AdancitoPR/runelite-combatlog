@@ -48,7 +48,8 @@ tasks.register('run', JavaExec) {
 	classpath = sourceSets.test.runtimeClasspath
 	mainClass = pluginMainClass
 
-	jvmArgs "-ea"
+	// The game canvas is OpenGL. Direct3D Swing blits wipe the sidebar icons and leave a white panel on hover, scroll, and refresh.
+	jvmArgs "-ea", "-Dsun.java2d.d3d=false"
 	args "--developer-mode", "--debug"
 }
 
