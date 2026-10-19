@@ -128,7 +128,7 @@ class CombatLogPanel extends PluginPanel
 		emptyLabel.setOpaque(true);
 		emptyLabel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		emptyLabel.setVerticalAlignment(SwingConstants.TOP);
-		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the blue hitsplats you land will show up here."
+		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the red hitsplats you land will show up here."
 			+ "<br><br>Poison, venom, burn, and other players' hits stay off this log. The game does not mark those splats as yours.</body></html>");
 		int emptyHeight = emptyLabel.getPreferredSize().height;
 		emptyLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, emptyHeight));

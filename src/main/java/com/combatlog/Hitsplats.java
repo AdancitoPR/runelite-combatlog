@@ -11,10 +11,39 @@ import java.util.Map;
 import net.runelite.client.ui.FontManager;
 
 /**
- * Blue and red hitsplat marks. Blue is damage you deal, red is damage you take.
+ * Spiky hitsplat marks. Red is damage you deal, blue is damage you take.
  */
 final class Hitsplats
 {
+	private static final String[] SPLAT = {
+		"........s..........",
+		"......s.#.s........",
+		"....s..###..s.s....",
+		"..s.s.#####.s..s...",
+		".s..#########..s...",
+		"..s###########s.s..",
+		".s#############s.s.",
+		"s###############s..",
+		".#################.",
+		"s#################s",
+		".#################.",
+		"s###############s..",
+		".s#############s.s.",
+		"..s###########s.s..",
+		"...s.#########..s..",
+		"....s.s#####s.s....",
+		"......s.###.s......",
+		".......s.s.s.......",
+		".........s........."
+	};
+
+	private static final Color RED = new Color(214, 12, 12);
+	private static final Color RED_DARK = new Color(148, 0, 0);
+	private static final Color RED_TIP = new Color(92, 0, 0);
+	private static final Color BLUE = new Color(24, 36, 214);
+	private static final Color BLUE_DARK = new Color(8, 12, 150);
+	private static final Color BLUE_TIP = new Color(0, 8, 96);
+
 	private static final Map<String, BufferedImage> CACHE = new HashMap<>();
 
 	private Hitsplats()
@@ -29,7 +58,7 @@ final class Hitsplats
 		{
 			return cached;
 		}
-		BufferedImage image = blob(incoming, 22, 16, null, null);
+		BufferedImage image = paint(incoming, null, null);
 		CACHE.put(key, image);
 		return image;
 	}
@@ -60,7 +89,11 @@ final class Hitsplats
 		{
 			font = new Font(Font.DIALOG, Font.BOLD, 12);
 		}
-		BufferedImage image = blob(incoming, 0, 18, shown, font);
+		else
+		{
+			font = font.deriveFont(Font.BOLD, 12f);
+		}
+		BufferedImage image = paint(incoming, shown, font);
 		CACHE.put(key, image);
 		return image;
 	}
@@ -111,7 +144,7 @@ final class Hitsplats
 		return new String[] {number, note};
 	}
 
-	private static BufferedImage blob(boolean incoming, int width, int height, String text, Font font)
+	private static BufferedImage paint(boolean incoming, String text, Font font)
 	{
 		int textWidth = 0;
 		if (text != null)
@@ -121,37 +154,110 @@ final class Hitsplats
 			probeGraphics.setFont(font);
 			textWidth = probeGraphics.getFontMetrics().stringWidth(text);
 			probeGraphics.dispose();
-			width = Math.max(24, textWidth + 14);
 		}
-		BufferedImage image = new BufferedImage(Math.max(1, width), Math.max(1, height), BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g = image.createGraphics();
-		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-		Color edge = incoming ? new Color(110, 12, 12) : new Color(16, 42, 128);
-		Color fill = incoming ? new Color(204, 28, 28) : new Color(46, 108, 226);
-		Color light = incoming ? new Color(255, 110, 90) : new Color(132, 186, 255);
-		g.setColor(Color.BLACK);
-		g.fillOval(0, 1, width - 1, height - 2);
-		g.setColor(edge);
-		g.fillOval(1, 2, width - 3, height - 4);
-		g.setColor(fill);
-		g.fillOval(2, 3, width - 5, height - 6);
-		g.setColor(light);
-		g.fillOval(Math.max(2, width / 5), 3, Math.max(4, width / 3), Math.max(3, height / 4));
+		char[][] grid = shape(textWidth + 6);
+		int rows = grid.length;
+		int cols = grid[0].length;
+		BufferedImage image = new BufferedImage(cols, rows, BufferedImage.TYPE_INT_ARGB);
+		Color core = incoming ? BLUE : RED;
+		Color dark = incoming ? BLUE_DARK : RED_DARK;
+		Color tip = incoming ? BLUE_TIP : RED_TIP;
+		for (int y = 0; y < rows; y++)
+		{
+			for (int x = 0; x < cols; x++)
+			{
+				char cell = grid[y][x];
+				if (cell == '.')
+				{
+					continue;
+				}
+				Color color = core;
+				if (cell == 's')
+				{
+					color = neighbors(grid, x, y) <= 1 ? tip : dark;
+				}
+				image.setRGB(x, y, color.getRGB());
+			}
+		}
 		if (text != null)
 		{
+			Graphics2D g = image.createGraphics();
+			g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
+			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
 			g.setFont(font);
 			FontMetrics metrics = g.getFontMetrics();
-			int x = (width - metrics.stringWidth(text)) / 2;
-			int y = (height - metrics.getHeight()) / 2 + metrics.getAscent();
+			int x = (cols - metrics.stringWidth(text)) / 2;
+			int y = (rows - metrics.getHeight()) / 2 + metrics.getAscent() - 1;
 			g.setColor(Color.BLACK);
-			g.drawString(text, x - 1, y);
-			g.drawString(text, x + 1, y);
-			g.drawString(text, x, y - 1);
-			g.drawString(text, x, y + 1);
+			for (int ox = -1; ox <= 1; ox++)
+			{
+				for (int oy = -1; oy <= 1; oy++)
+				{
+					if (ox != 0 || oy != 0)
+					{
+						g.drawString(text, x + ox, y + oy);
+					}
+				}
+			}
 			g.setColor(Color.WHITE);
 			g.drawString(text, x, y);
+			g.dispose();
 		}
-		g.dispose();
 		return image;
+	}
+
+	private static char[][] shape(int minCore)
+	{
+		int rows = SPLAT.length;
+		int cols = SPLAT[0].length();
+		int mid = cols / 2;
+		int core = 0;
+		for (int x = 0; x < cols; x++)
+		{
+			if (SPLAT[rows / 2].charAt(x) == '#')
+			{
+				core++;
+			}
+		}
+		int extra = Math.max(0, minCore - core);
+		char[][] grid = new char[rows][cols + extra];
+		for (int y = 0; y < rows; y++)
+		{
+			int dx = 0;
+			for (int x = 0; x < cols; x++)
+			{
+				grid[y][dx++] = SPLAT[y].charAt(x);
+				if (x == mid)
+				{
+					for (int i = 0; i < extra; i++)
+					{
+						grid[y][dx++] = SPLAT[y].charAt(mid);
+					}
+				}
+			}
+		}
+		return grid;
+	}
+
+	private static int neighbors(char[][] grid, int x, int y)
+	{
+		int count = 0;
+		for (int oy = -1; oy <= 1; oy++)
+		{
+			for (int ox = -1; ox <= 1; ox++)
+			{
+				if (ox == 0 && oy == 0)
+				{
+					continue;
+				}
+				int nx = x + ox;
+				int ny = y + oy;
+				if (ny >= 0 && ny < grid.length && nx >= 0 && nx < grid[ny].length && grid[ny][nx] != '.')
+				{
+					count++;
+				}
+			}
+		}
+		return count;
 	}
 }
