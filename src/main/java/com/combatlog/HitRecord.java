@@ -29,6 +29,8 @@ public final class HitRecord
 	private final int sequence;
 	@Nullable
 	private final Integer sourceNpcId;
+	@Nullable
+	private final CombatStyle combatStyle;
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint)
 	{
@@ -41,6 +43,11 @@ public final class HitRecord
 	}
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId)
+	{
+		this(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, null);
+	}
+
+	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId, @Nullable CombatStyle combatStyle)
 	{
 		this.timeMillis = timeMillis;
 		this.targetName = targetName;
@@ -60,22 +67,33 @@ public final class HitRecord
 		this.fightId = fightId;
 		this.sequence = sequence;
 		this.sourceNpcId = sourceNpcId != null && sourceNpcId > 0 ? sourceNpcId : null;
+		this.combatStyle = combatStyle;
 	}
 
 	public HitRecord withMeta(int tick, @Nullable Long fightId, @Nullable Long attackId, @Nullable Integer weaponItemId, boolean special, DamageSource source, int overkill, int sequence)
 	{
 		Integer weapon = weaponItemId != null && weaponItemId > 0 ? weaponItemId : this.weaponItemId;
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public HitRecord withSourceNpc(@Nullable Integer sourceNpcId)
 	{
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public HitRecord asSource(DamageSource source, @Nullable Integer weaponItemId, @Nullable Integer sourceNpcId)
 	{
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
+	}
+
+	public HitRecord withStyle(@Nullable CombatStyle combatStyle)
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
+	}
+
+	public HitRecord asSplash()
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, HitKind.SPLASH, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public long getTimeMillis()
@@ -175,14 +193,30 @@ public final class HitRecord
 		return sourceNpcId;
 	}
 
+	@Nullable
+	public CombatStyle getCombatStyle()
+	{
+		return combatStyle;
+	}
+
 	public boolean isBlock()
 	{
 		return kind == HitKind.BLOCK;
 	}
 
+	public boolean isSplash()
+	{
+		return kind == HitKind.SPLASH;
+	}
+
+	public boolean isMiss()
+	{
+		return kind == HitKind.BLOCK || kind == HitKind.SPLASH;
+	}
+
 	public boolean countsTowardWeaponDamage()
 	{
-		return direction == DamageDirection.OUTGOING && source == DamageSource.WEAPON && !isBlock();
+		return direction == DamageDirection.OUTGOING && source == DamageSource.WEAPON && !isMiss();
 	}
 
 	public boolean visibleIn(DamageView view)
@@ -205,6 +239,10 @@ public final class HitRecord
 		{
 			description.append("Max hit");
 		}
+		else if (kind == HitKind.SPLASH)
+		{
+			description.append("Splash");
+		}
 		else if (kind == HitKind.BLOCK)
 		{
 			description.append("Block");
@@ -222,7 +260,7 @@ public final class HitRecord
 		{
 			description.append(" (player)");
 		}
-		if (kind != HitKind.BLOCK)
+		if (!isMiss())
 		{
 			description.append(" for ").append(amount);
 		}

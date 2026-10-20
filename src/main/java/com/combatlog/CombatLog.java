@@ -53,6 +53,15 @@ public class CombatLog
 		}
 	}
 
+	@Nullable
+	public Integer currentNpc(@Nullable Integer npcIndex, int tick)
+	{
+		synchronized (lock)
+		{
+			return fights.currentNpc(npcIndex, tick);
+		}
+	}
+
 	public void closeLife(@Nullable Integer npcIndex, int tick)
 	{
 		synchronized (lock)
@@ -186,7 +195,7 @@ public class CombatLog
 		{
 			if (hit.getDirection() == DamageDirection.INCOMING)
 			{
-				if (!hit.isBlock())
+				if (!hit.isMiss())
 				{
 					damageTaken += hit.getAmount();
 					incomingHits++;
@@ -202,7 +211,7 @@ public class CombatLog
 				byTarget.put(key, target);
 			}
 
-			if (hit.isBlock())
+			if (hit.isMiss())
 			{
 				if (hit.getSource() == DamageSource.WEAPON)
 				{

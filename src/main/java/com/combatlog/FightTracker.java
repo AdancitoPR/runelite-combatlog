@@ -11,9 +11,10 @@ import java.util.TreeSet;
 import javax.annotation.Nullable;
 
 /**
- * One open life per NPC index. A death closes it, and the next hit on that
- * index starts another life even when the index is reused. A quiet gap is
- * only the fallback for monsters that never report a death.
+ * One open life per NPC index. Pausing damage does not start another log for
+ * that same NPC. A death or despawn closes the life, and the next hit on that
+ * index starts a new one. A quiet gap is only the fallback for fights that
+ * are not tied to an NPC index.
  */
 final class FightTracker
 {
@@ -42,6 +43,31 @@ final class FightTracker
 		fight.addHit(stored);
 		byId.put(fight.getId(), fight);
 		return stored;
+	}
+
+	/**
+	 * The NPC the player is already fighting, including the short window after
+	 * it dies so the last incoming hit stays on that same log.
+	 */
+	@Nullable
+	Integer currentNpc(@Nullable Integer npcIndex, int tick)
+	{
+		if (npcIndex == null)
+		{
+			return null;
+		}
+		String key = npcKey(npcIndex);
+		Fight current = open.get(key);
+		if (current != null && !current.isClosed())
+		{
+			return npcIndex;
+		}
+		Fight closed = lastClosed.get(key);
+		if (closed != null && closed.isKilled() && tick <= closed.getEndTick() + FightSummary.LATE_TICKS)
+		{
+			return npcIndex;
+		}
+		return null;
 	}
 
 	void closeLife(@Nullable Integer npcIndex, int tick)
@@ -198,21 +224,28 @@ final class FightTracker
 
 	private Fight locate(HitRecord hit)
 	{
+		if (hit.getNpcIndex() == null && hit.getTargetKind() == TargetKind.NPC)
+		{
+			Fight only = soleOpenNpcFight();
+			if (only != null)
+			{
+				return only;
+			}
+		}
+
 		String key = key(hit);
 		Fight current = open.get(key);
 		if (current != null && !current.isClosed())
 		{
 			int last = current.lastTick();
-			if (hit.getTick() > 0 && hit.getTick() - last > FightSummary.QUIET_TICKS)
-			{
-				current.closeQuiet(last);
-				open.remove(key);
-				lastClosed.put(key, current);
-			}
-			else
+			boolean sameNpc = hit.getNpcIndex() != null && hit.getTargetKind() == TargetKind.NPC;
+			if (sameNpc || hit.getTick() <= 0 || hit.getTick() - last <= FightSummary.QUIET_TICKS)
 			{
 				return current;
 			}
+			current.closeQuiet(last);
+			open.remove(key);
+			lastClosed.put(key, current);
 		}
 
 		Fight closed = lastClosed.get(key);
@@ -311,6 +344,25 @@ final class FightTracker
 			{
 				found = swing;
 			}
+		}
+		return found;
+	}
+
+	@Nullable
+	private Fight soleOpenNpcFight()
+	{
+		Fight found = null;
+		for (Fight fight : open.values())
+		{
+			if (fight.isClosed() || fight.getKind() != TargetKind.NPC || fight.getNpcIndex() == null)
+			{
+				continue;
+			}
+			if (found != null)
+			{
+				return null;
+			}
+			found = fight;
 		}
 		return found;
 	}

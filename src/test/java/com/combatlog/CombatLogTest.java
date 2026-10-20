@@ -3,9 +3,11 @@ package com.combatlog;
 import java.time.ZoneOffset;
 import java.util.List;
 import net.runelite.api.HitsplatID;
+import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -237,17 +239,74 @@ public class CombatLogTest
 	}
 
 	@Test
-	public void keepsAFifteenTickGapTogetherUntilDeath()
+	public void keepsTheSameNpcTogetherUntilDeath()
 	{
 		CombatLog log = new CombatLog(10);
 		log.add(npcHit(0, "Cerberus", 5, 5862, 10));
 		log.add(npcHit(15, "Cerberus", 5, 5862, 12));
-		assertEquals(1, log.summarize(15_000L, 10).getFights().size());
+		log.add(npcHit(40, "Cerberus", 5, 5862, 8));
+		assertEquals(1, log.summarize(40_000L, 10).getFights().size());
+	}
 
-		CombatLog quiet = new CombatLog(10);
-		quiet.add(npcHit(0, "Goblin", 3, 301, 5));
-		quiet.add(npcHit(17, "Goblin", 3, 301, 6));
-		assertEquals(2, quiet.summarize(17_000L, 10).getFights().size());
+	@Test
+	public void pausingOutgoingDamageKeepsDealtAndTakenOnOneFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(incoming(40, "Goblin", 4, 301, 8));
+		log.add(npcHit(50, "Goblin", 4, 301, 6));
+
+		CombatSnapshot both = log.summarize(50_000L, 10, DamageView.BOTH);
+		assertEquals(1, both.getFights().size());
+		Fight fight = both.getFights().get(0);
+		assertEquals(16, fight.damageDone());
+		assertEquals(8, fight.damageTaken());
+		assertEquals(2, countDirection(fight, DamageDirection.OUTGOING));
+		assertEquals(1, countDirection(fight, DamageDirection.INCOMING));
+	}
+
+	@Test
+	public void unattributedIncomingStaysOnTheOpenFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 8, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(npcHit(55, "Goblin", 4, 301, 4));
+
+		List<Fight> fights = log.summarize(55_000L, 10, DamageView.BOTH).getFights();
+		assertEquals(1, fights.size());
+		assertEquals(14, fights.get(0).damageDone());
+		assertEquals(8, fights.get(0).damageTaken());
+		assertEquals(Integer.valueOf(4), log.currentNpc(4, 55));
+	}
+
+	@Test
+	public void aSecondNpcGetsItsOwnFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(incoming(2, "Goblin", 4, 301, 3));
+		log.add(npcHit(3, "Guard", 8, 302, 5));
+		assertEquals(2, log.summarize(3_000L, 10, DamageView.BOTH).getFights().size());
+	}
+
+	@Test
+	public void incomingTargetStaysOnTheFightAlreadyOpen()
+	{
+		assertEquals(Integer.valueOf(3), IncomingTarget.index(3, 7, 4, 9));
+		assertEquals(Integer.valueOf(7), IncomingTarget.index(null, 7, 4, 9));
+		assertEquals(Integer.valueOf(4), IncomingTarget.index(null, null, 4, 9));
+		assertEquals(Integer.valueOf(9), IncomingTarget.index(null, null, null, 9));
+		assertEquals(null, IncomingTarget.index(null, null, null, null));
+	}
+
+	@Test
+	public void playerFightStillSplitsAfterAQuietGap()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(600L, "Guard", TargetKind.PLAYER, null, null, null, 5, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(12_000L, "Guard", TargetKind.PLAYER, null, null, null, 6, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertEquals(2, log.summarize(12_000L, 10).getFights().size());
 	}
 
 	@Test
@@ -405,6 +464,25 @@ public class CombatLogTest
 		List<AttackRow> rows = AttackRow.group(java.util.Arrays.asList(first, second));
 		assertEquals(1, rows.size());
 		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
+		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
+
+		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
+		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
+		assertEquals("40*", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
+	}
+
+	@Test
+	public void eachFightListsTheNewestHitFirst()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 5));
+		log.add(incoming(2, "Goblin", 4, 301, 8));
+		log.add(npcHit(3, "Goblin", 4, 301, 11));
+		Fight fight = log.summarize(3_000L, 10, DamageView.BOTH).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.BOTH));
+		assertEquals(11, rows.get(0).getTotal());
+		assertEquals(8, rows.get(1).getTotal());
+		assertEquals(5, rows.get(2).getTotal());
 	}
 
 	@Test
@@ -433,6 +511,124 @@ public class CombatLogTest
 		assertEquals(1, snapshot.getDamageHits());
 		assertEquals("3 thrall", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.THRALL)));
 		assertEquals("12 venge", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.VENGEANCE)));
+	}
+
+	@Test
+	public void incomingHitStyleFollowsTheAttack()
+	{
+		IncomingStyles styles = new IncomingStyles();
+		assertEquals(CombatStyle.MELEE, styles.styleFor(4, 1000, "Goblin"));
+		styles.noteProjectile(4, 1000, false);
+		assertEquals(CombatStyle.RANGED, styles.styleFor(4, 1000, "Chaos dwarf"));
+		styles.noteProjectile(7, 1000, false);
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(7, 1000, "Green dragon"));
+		styles.noteProjectile(8, 1000, true);
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(8, 1000, "Guard"));
+		assertEquals(null, styles.styleFor(null, 1000, "Taken"));
+		assertEquals(null, styles.attackerIndex(1000));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(0, "Chaos dwarf", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1245, "Cerberus", false));
+		assertEquals(CombatStyle.MAGIC, IncomingStyles.projectileStyle(1242, "Cerberus", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1477, "Vorkath", true));
+
+		IncomingStyles cerberus = new IncomingStyles();
+		assertEquals(CombatStyle.MELEE, cerberus.styleFor(5, 2000, "Cerberus"));
+		cerberus.noteProjectile(5, 2000, 1245, false);
+		assertEquals(CombatStyle.RANGED, cerberus.styleFor(5, 2000, "Cerberus"));
+		cerberus.noteProjectile(5, 2100, 1242, false);
+		assertEquals(CombatStyle.MAGIC, cerberus.styleFor(5, 2100, "Cerberus"));
+		cerberus.noteProjectile(9, 2200, false);
+		assertEquals(CombatStyle.RANGED, cerberus.styleFor(5, 2200, "Cerberus"));
+		assertEquals(CombatStyle.MELEE, cerberus.styleFor(5, 2400, "Cerberus"));
+
+		WorldPoint tile = new WorldPoint(3200, 3200, 0);
+		assertTrue(IncomingStyles.aimedAt(null, null, null, tile, tile));
+		assertTrue(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3201, 3200, 0), tile));
+		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3204, 3200, 0), tile));
+		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3200, 3200, 1), tile));
+
+		IncomingStyles one = new IncomingStyles();
+		one.noteProjectile(4, 1000, false);
+		assertEquals(Integer.valueOf(4), one.attackerIndex(1000));
+	}
+
+	@Test
+	public void magicSplashIsLoggedForEitherDirection()
+	{
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_ME, true, false));
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_ME, false, true));
+		assertFalse(MagicSplash.outgoing(HitsplatID.BLOCK_ME, false, false));
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_OTHER, false, true));
+		assertFalse(MagicSplash.outgoing(HitsplatID.BLOCK_OTHER, true, false));
+		assertFalse(MagicSplash.outgoing(HitsplatID.DAMAGE_ME, true, true));
+		assertTrue(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.MAGIC));
+		assertTrue(MagicSplash.incoming(HitsplatID.BLOCK_OTHER, CombatStyle.MAGIC));
+		assertFalse(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.MELEE));
+		assertFalse(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.RANGED));
+		assertFalse(MagicSplash.incoming(HitsplatID.DAMAGE_ME, CombatStyle.MAGIC));
+
+		String[] staff = {"ACCURATE", "AGGRESSIVE", "CONTROLLED", "DEFENSIVE", "CASTING", "DEFENSIVE"};
+		assertEquals("CASTING", SpellStyle.selected(staff, 4, 0));
+		assertEquals("DEFENSIVE_CASTING", SpellStyle.selected(staff, 4, 1));
+		assertFalse(SpellStyle.isCasting(SpellStyle.selected(staff, 0, 0)));
+		assertTrue(SpellStyle.spellProjectile("ACCURATE", staff));
+		String[] bow = {"RANGING", "RANGING", "LONGRANGE"};
+		assertFalse(SpellStyle.spellProjectile(SpellStyle.selected(bow, 0, 0), bow));
+		assertTrue(SpellStyle.spellProjectile("CASTING", bow));
+		assertFalse(SpellStyle.spellProjectile(null, null));
+		assertFalse(SpellStyle.spellProjectile(null, new String[0]));
+
+		assertNull(HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, 301, 4, null, false, false, true, 1_200L));
+		HitRecord splash = HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, 301, 4, 1401, false, true, true, 1_200L).asSplash();
+		assertTrue(splash.isSplash());
+		assertEquals("Splash", CombatLogFormatter.amountLabel(splash));
+		assertTrue(splash.describe().startsWith("Splash"));
+
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(splash);
+		Fight fight = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals(10, fight.damageDone());
+		assertEquals(Integer.valueOf(50), FightSummary.accuracy(fight));
+		AttackRow row = AttackRow.group(fight.getHits()).get(0);
+		assertTrue(row.isSplash());
+		assertEquals("0", CombatLogFormatter.rowAmount(row));
+		assertEquals(1, log.summarize(2_000L, 10).getBlocks());
+
+		HitRecord taken = HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Green dragon", TargetKind.NPC, 941, 7, 1_800L, 3, false);
+		assertNull(taken);
+		taken = HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Green dragon", TargetKind.NPC, 941, 7, 1_800L, 3, true).asSplash().withStyle(CombatStyle.MAGIC);
+		log.add(taken);
+		CombatSnapshot incoming = log.summarize(2_000L, 10, DamageView.INCOMING);
+		assertEquals(0L, incoming.getDamageTaken());
+		assertEquals(1, CombatLogFormatter.countSplashes(incoming.getHits(), DamageDirection.INCOMING));
+
+		IncomingStyles styles = new IncomingStyles();
+		assertFalse(styles.playerSpellLanding(4, 1000));
+		styles.notePlayerSpell(4, 1000);
+		assertTrue(styles.playerSpellLanding(4, 1000));
+		assertFalse(styles.playerSpellLanding(9, 1000));
+		assertFalse(styles.playerSpellLanding(null, 1000));
+		styles.notePlayerSpell(null, 2000);
+		assertTrue(styles.playerSpellLanding(3, 2000));
+		assertTrue(styles.playerSpellLanding(null, 2000));
+		assertFalse(styles.playerSpellLanding(4, 2200));
+		assertNull(styles.landingStyle(1000, "Goblin"));
+		styles.noteProjectile(4, 3000, 1242, false);
+		assertEquals(CombatStyle.MAGIC, styles.landingStyle(3000, "Goblin"));
+	}
+
+	private static int countDirection(Fight fight, DamageDirection direction)
+	{
+		int count = 0;
+		for (HitRecord hit : fight.getHits())
+		{
+			if (hit.getDirection() == direction)
+			{
+				count++;
+			}
+		}
+		return count;
 	}
 
 	private static HitRecord findSource(CombatSnapshot snapshot, DamageSource source)

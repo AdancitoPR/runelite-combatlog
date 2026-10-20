@@ -8,11 +8,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Client;
+import net.runelite.api.EnumComposition;
+import net.runelite.api.EnumID;
 import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
 import net.runelite.api.HitsplatID;
@@ -22,12 +27,15 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
+import net.runelite.api.Projectile;
+import net.runelite.api.StructComposition;
 import net.runelite.api.VarPlayer;
 import net.runelite.api.Varbits;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.VarbitChanged;
@@ -93,7 +101,11 @@ public class CombatLogPlugin extends Plugin
 	private int playerAttackSplats = 1;
 	private Integer playerAttackIndex;
 	private final List<PendingHit> pending = new ArrayList<>();
+	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private int lastHitTick = -100;
+	private Integer opponentIndex;
+	private String opponentName;
+	private Integer opponentNpcId;
 
 	@Override
 	protected void startUp()
@@ -174,6 +186,10 @@ public class CombatLogPlugin extends Plugin
 				return;
 			}
 			Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
+			if (target instanceof NPC && !isThrall((NPC) target))
+			{
+				rememberOpponent((NPC) target);
+			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
 			playerAttackTick = tick;
@@ -256,6 +272,10 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (!isThrall(npc))
+			{
+				rememberOpponent(npc);
+			}
 		}
 		else if (actor instanceof Player)
 		{
@@ -265,10 +285,16 @@ public class CombatLogPlugin extends Plugin
 		int amount = event.getHitsplat().getAmount();
 		int type = event.getHitsplat().getHitsplatType();
 		boolean burn = type == HitsplatID.BURN;
+		boolean splash = !burn && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
+		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
 		Integer weapon = combatLog.weaponFor(npcIndex, tick, equippedWeaponId());
 		HitRecord record = burn
 			? HitCapture.captureBurn(type, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, System.currentTimeMillis(), tick)
-			: HitCapture.capture(type, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks(), config.recordPlayerHits(), System.currentTimeMillis());
+			: HitCapture.capture(captureType, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks() || splash, config.recordPlayerHits(), System.currentTimeMillis());
+		if (record != null && splash)
+		{
+			record = record.asSplash();
+		}
 		if (record == null)
 		{
 			return;
@@ -325,12 +351,48 @@ public class CombatLogPlugin extends Plugin
 
 	private void recordIncoming(HitsplatApplied event, int tick)
 	{
-		NPC attacker = soleAttacker();
-		String name = attacker == null || attacker.getName() == null ? "Taken" : attacker.getName();
-		Integer npcId = attacker == null ? null : npcId(attacker);
-		Integer npcIndex = attacker == null ? null : attacker.getIndex();
+		NPC interacting = interactingNpc();
+		NPC aggro = soleAggro();
+		Integer index = IncomingTarget.index(
+			interacting == null ? null : interacting.getIndex(),
+			incomingStyles.attackerIndex(client.getGameCycle()),
+			combatLog.currentNpc(opponentIndex, tick),
+			aggro == null ? null : aggro.getIndex());
+		NPC attacker = npcByIndex(index);
+		String name;
+		Integer npcId;
+		Integer npcIndex;
+		if (attacker != null)
+		{
+			name = attacker.getName() == null || attacker.getName().isEmpty() ? "Unknown" : attacker.getName();
+			npcId = npcId(attacker);
+			npcIndex = attacker.getIndex();
+		}
+		else if (index != null && index.equals(opponentIndex))
+		{
+			name = opponentName == null || opponentName.isEmpty() ? "Unknown" : opponentName;
+			npcId = opponentNpcId;
+			npcIndex = index;
+		}
+		else if (index != null)
+		{
+			name = "Unknown";
+			npcId = null;
+			npcIndex = index;
+		}
+		else
+		{
+			name = "Taken";
+			npcId = null;
+			npcIndex = null;
+		}
+		int type = event.getHitsplat().getHitsplatType();
+		CombatStyle style = npcIndex == null
+			? incomingStyles.landingStyle(client.getGameCycle(), name)
+			: incomingStyles.styleFor(npcIndex, client.getGameCycle(), name);
+		boolean splash = MagicSplash.incoming(type, style);
 		HitRecord record = HitCapture.captureIncoming(
-			event.getHitsplat().getHitsplatType(),
+			type,
 			event.getHitsplat().getAmount(),
 			name,
 			TargetKind.NPC,
@@ -338,17 +400,81 @@ public class CombatLogPlugin extends Plugin
 			npcIndex,
 			System.currentTimeMillis(),
 			tick,
-			config.includeBlocks());
+			config.includeBlocks() || splash);
 		if (record == null)
 		{
 			return;
+		}
+		if (splash)
+		{
+			record = record.asSplash().withStyle(CombatStyle.MAGIC);
+		}
+		else if (record.getSource() == DamageSource.WEAPON)
+		{
+			record = record.withStyle(style);
 		}
 		combatLog.add(record);
 		lastHitTick = tick;
 		queueRefresh();
 	}
 
-	private NPC soleAttacker()
+	@Subscribe
+	public void onProjectileMoved(ProjectileMoved event)
+	{
+		Projectile projectile = event.getProjectile();
+		Player player = client.getLocalPlayer();
+		if (projectile == null || player == null)
+		{
+			return;
+		}
+		Actor source = projectile.getSourceActor();
+		if (source instanceof Player)
+		{
+			if (source == player && spellProjectile())
+			{
+				Actor target = projectile.getTargetActor();
+				Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
+				if (index == null)
+				{
+					Actor interacting = player.getInteracting();
+					index = interacting instanceof NPC ? ((NPC) interacting).getIndex() : null;
+				}
+				incomingStyles.notePlayerSpell(index, projectile.getEndCycle());
+			}
+			return;
+		}
+		NPC npc = source instanceof NPC ? (NPC) source : null;
+		if (npc != null && isThrall(npc))
+		{
+			return;
+		}
+		boolean aimed = IncomingStyles.aimedAt(
+			projectile.getTargetActor(),
+			projectile.getInteracting(),
+			player,
+			projectile.getTargetPoint(),
+			player.getWorldLocation());
+		if (!aimed && !nearPlayer(projectile.getTarget(), player.getLocalLocation()))
+		{
+			return;
+		}
+		Integer index = npc == null ? null : npc.getIndex();
+		int projectileId = projectile.getId();
+		incomingStyles.noteProjectile(index, projectile.getEndCycle(), projectileId, IncomingStyles.isMagicProjectile(projectileId));
+	}
+
+	private static boolean nearPlayer(@Nullable LocalPoint target, @Nullable LocalPoint player)
+	{
+		if (target == null || player == null)
+		{
+			return false;
+		}
+		int dx = Math.abs(target.getX() - player.getX());
+		int dy = Math.abs(target.getY() - player.getY());
+		return Math.max(dx, dy) <= 256;
+	}
+
+	private NPC interactingNpc()
 	{
 		Player player = client.getLocalPlayer();
 		if (player == null)
@@ -356,14 +482,24 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		Actor target = player.getInteracting();
-		if (target instanceof NPC)
+		if (!(target instanceof NPC) || isThrall((NPC) target))
 		{
-			return (NPC) target;
+			return null;
+		}
+		return (NPC) target;
+	}
+
+	private NPC soleAggro()
+	{
+		Player player = client.getLocalPlayer();
+		if (player == null)
+		{
+			return null;
 		}
 		NPC found = null;
 		for (NPC npc : client.getNpcs())
 		{
-			if (npc.getInteracting() != player)
+			if (npc.getInteracting() != player || isThrall(npc))
 			{
 				continue;
 			}
@@ -374,6 +510,38 @@ public class CombatLogPlugin extends Plugin
 			found = npc;
 		}
 		return found;
+	}
+
+	@Nullable
+	private NPC npcByIndex(@Nullable Integer index)
+	{
+		if (index == null)
+		{
+			return null;
+		}
+		for (NPC npc : client.getNpcs())
+		{
+			if (npc.getIndex() == index)
+			{
+				return npc;
+			}
+		}
+		return null;
+	}
+
+	private void rememberOpponent(NPC npc)
+	{
+		opponentIndex = npc.getIndex();
+		String name = npc.getName();
+		if (name != null && !name.isEmpty())
+		{
+			opponentName = name;
+		}
+		Integer id = npcId(npc);
+		if (id != null)
+		{
+			opponentNpcId = id;
+		}
 	}
 
 	private int overkill(Actor actor, Integer npcIndex, Integer npcId, int amount)
@@ -408,6 +576,72 @@ public class CombatLogPlugin extends Plugin
 			return 4;
 		}
 		return stats.getEquipment().getAspeed();
+	}
+
+	private boolean playerCasting()
+	{
+		String[] styles = weaponStyles();
+		if (styles == null)
+		{
+			return false;
+		}
+		return SpellStyle.isCasting(SpellStyle.selected(styles, attackStyle(), defensiveCasting()));
+	}
+
+	private boolean spellProjectile()
+	{
+		String[] styles = weaponStyles();
+		if (styles == null)
+		{
+			return false;
+		}
+		return SpellStyle.spellProjectile(SpellStyle.selected(styles, attackStyle(), defensiveCasting()), styles);
+	}
+
+	private int attackStyle()
+	{
+		return client.getVarpValue(VarPlayer.ATTACK_STYLE);
+	}
+
+	private int defensiveCasting()
+	{
+		return client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
+	}
+
+	@Nullable
+	private String[] weaponStyles()
+	{
+		try
+		{
+			int weaponType = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+			EnumComposition weapons = client.getEnum(EnumID.WEAPON_STYLES);
+			if (weapons == null)
+			{
+				return SpellStyle.fallback(weaponType);
+			}
+			int styleEnumId = weapons.getIntValue(weaponType);
+			if (styleEnumId == -1)
+			{
+				return SpellStyle.fallback(weaponType);
+			}
+			EnumComposition styles = client.getEnum(styleEnumId);
+			int[] structIds = styles == null ? null : styles.getIntVals();
+			if (structIds == null)
+			{
+				return SpellStyle.fallback(weaponType);
+			}
+			String[] names = new String[structIds.length];
+			for (int i = 0; i < structIds.length; i++)
+			{
+				StructComposition struct = client.getStructComposition(structIds[i]);
+				names[i] = struct == null ? null : struct.getStringValue(SpellStyle.STYLE_NAME_PARAM);
+			}
+			return names;
+		}
+		catch (RuntimeException ex)
+		{
+			return null;
+		}
 	}
 
 	private Integer equippedWeaponId()
@@ -531,7 +765,7 @@ public class CombatLogPlugin extends Plugin
 		{
 			PendingHit hit = hits.get(eligible.get(i));
 			amounts[i] = hit.record.getAmount();
-			blocks[i] = hit.record.isBlock();
+			blocks[i] = hit.record.isBlock() || hit.record.isSplash();
 		}
 		int picked = Thralls.pick(amounts, blocks, slots, thrallMax, swung && thrallMax > 0);
 		int thrallAt = picked < 0 ? -1 : eligible.get(picked);

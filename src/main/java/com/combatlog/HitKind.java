@@ -4,5 +4,6 @@ public enum HitKind
 {
 	HIT,
 	MAX_HIT,
-	BLOCK
+	BLOCK,
+	SPLASH
 }

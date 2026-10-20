@@ -1,126 +1,167 @@
 package com.combatlog;
 
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import javax.swing.SwingUtilities;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.util.AsyncBufferedImage;
 
 /**
- * Pixel marks for the three damage tabs: a sword, a shield, and both.
+ * Outgoing, incoming, and both tab marks. The sprites are the dragon scimitar
+ * and the rune kiteshield from the game cache.
  */
-final class TabIcons
+@Slf4j
+@Singleton
+class TabIcons
 {
-	private static final int SCALE = 2;
+	static final int SCIMITAR = 4587;
+	static final int KITE = 1201;
+	static final int SIZE = 28;
 
-	private static final String[] SWORD = {
-		".......xx.......",
-		"......xRRx......",
-		"......xRRx......",
-		"......xRRx......",
-		"......xRRx......",
-		"......xRRx......",
-		"......xRRx......",
-		".....xHHHHx.....",
-		"...xxHHHHHHxx...",
-		"......xYYx......",
-		"......xYYx......",
-		"......xYYx......",
-		".......xx.......",
-		"................",
-		"................",
-		"................"
-	};
+	private final ItemManager itemManager;
+	private final ConcurrentHashMap<Integer, BufferedImage> icons = new ConcurrentHashMap<>();
+	private final Set<Integer> pending = ConcurrentHashMap.newKeySet();
+	private volatile Runnable onLoaded;
+	private volatile BufferedImage paired;
 
-	private static final String[] SHIELD = {
-		"..xxxxxxxxxxxx..",
-		".xLLLLLLLLLLLLx.",
-		"xLLGGGGGGGGGGGGx",
-		"xLLGGGGGGGGGGGGx",
-		"xLLGGGxxxxGGGGGx",
-		"xLLGGGxxxxGGGGGx",
-		"xLLGGxxxxxxGGGGx",
-		"xGGGGxxxxxxGGGGx",
-		"xGGGGxxxxGGGGGGx",
-		"xGGGGxxxxGGGGGGx",
-		"xGGGGGGGGGGGGGGx",
-		".xGGGGGGGGGGGGGx",
-		"..xGGGGGGGGGGGx.",
-		"...xGGGGGGGGx...",
-		".....xxxxxx.....",
-		".......xx......."
-	};
-
-	private TabIcons()
+	@Inject
+	TabIcons(ItemManager itemManager)
 	{
+		this.itemManager = itemManager;
 	}
 
-	static BufferedImage sword()
+	void onLoaded(Runnable callback)
 	{
-		return sprite(SWORD);
+		onLoaded = callback;
 	}
 
-	static BufferedImage shield()
+	BufferedImage sword()
 	{
-		return sprite(SHIELD);
+		return get(SCIMITAR);
 	}
 
-	static BufferedImage both()
+	BufferedImage shield()
 	{
+		return get(KITE);
+	}
+
+	BufferedImage both()
+	{
+		BufferedImage cached = paired;
+		if (cached != null)
+		{
+			return cached;
+		}
 		BufferedImage sword = sword();
 		BufferedImage shield = shield();
+		if (sword == null || shield == null)
+		{
+			return null;
+		}
 		int gap = 3;
 		int width = sword.getWidth() + gap + shield.getWidth();
 		int height = Math.max(sword.getHeight(), shield.getHeight());
 		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g = image.createGraphics();
-		g.drawImage(sword, 0, (height - sword.getHeight()) / 2, null);
-		g.drawImage(shield, sword.getWidth() + gap, (height - shield.getHeight()) / 2, null);
-		g.dispose();
+		Graphics2D graphics = image.createGraphics();
+		graphics.drawImage(sword, 0, (height - sword.getHeight()) / 2, null);
+		graphics.drawImage(shield, sword.getWidth() + gap, (height - shield.getHeight()) / 2, null);
+		graphics.dispose();
+		paired = image;
 		return image;
 	}
 
-	private static BufferedImage sprite(String[] rows)
+	private BufferedImage get(int itemId)
 	{
-		int rowsN = rows.length;
-		int cols = rows[0].length();
-		BufferedImage image = new BufferedImage(cols * SCALE, rowsN * SCALE, BufferedImage.TYPE_INT_ARGB);
-		for (int y = 0; y < rowsN; y++)
+		BufferedImage icon = icons.get(itemId);
+		if (icon != null || itemManager == null || !pending.add(itemId))
 		{
-			for (int x = 0; x < cols; x++)
+			return icon;
+		}
+		try
+		{
+			AsyncBufferedImage image = itemManager.getImage(itemId);
+			image.onLoaded(() -> finish(itemId, image));
+		}
+		catch (Exception ex)
+		{
+			pending.remove(itemId);
+			log.debug("Could not request tab icon {}", itemId, ex);
+		}
+		return null;
+	}
+
+	private void finish(int itemId, BufferedImage image)
+	{
+		try
+		{
+			icons.put(itemId, toIcon(image));
+			Runnable callback = onLoaded;
+			if (callback != null)
 			{
-				int rgb = color(rows[y].charAt(x));
-				if (rgb == 0)
+				SwingUtilities.invokeLater(callback);
+			}
+		}
+		catch (Exception ex)
+		{
+			log.debug("Could not scale tab icon {}", itemId, ex);
+		}
+		finally
+		{
+			pending.remove(itemId);
+		}
+	}
+
+	private static BufferedImage toIcon(BufferedImage source)
+	{
+		BufferedImage trimmed = trim(source);
+		int width = trimmed.getWidth();
+		int height = trimmed.getHeight();
+		if (width <= 0 || height <= 0)
+		{
+			return source;
+		}
+		double scale = Math.min(SIZE / (double) width, SIZE / (double) height);
+		int scaledWidth = Math.max(1, (int) Math.round(width * scale));
+		int scaledHeight = Math.max(1, (int) Math.round(height * scale));
+		BufferedImage icon = new BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = icon.createGraphics();
+		graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+		graphics.drawImage(trimmed, 0, 0, scaledWidth, scaledHeight, null);
+		graphics.dispose();
+		return icon;
+	}
+
+	private static BufferedImage trim(BufferedImage image)
+	{
+		int width = image.getWidth();
+		int height = image.getHeight();
+		int minX = width;
+		int minY = height;
+		int maxX = -1;
+		int maxY = -1;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				if ((image.getRGB(x, y) >>> 24) > 16)
 				{
-					continue;
-				}
-				for (int oy = 0; oy < SCALE; oy++)
-				{
-					for (int ox = 0; ox < SCALE; ox++)
-					{
-						image.setRGB(x * SCALE + ox, y * SCALE + oy, rgb);
-					}
+					minX = Math.min(minX, x);
+					minY = Math.min(minY, y);
+					maxX = Math.max(maxX, x);
+					maxY = Math.max(maxY, y);
 				}
 			}
 		}
-		return image;
-	}
-
-	private static int color(char cell)
-	{
-		switch (cell)
+		if (maxX < minX || maxY < minY)
 		{
-			case 'x':
-				return 0xFF141414;
-			case 'R':
-				return 0xFFC41E1E;
-			case 'H':
-				return 0xFF6A3A18;
-			case 'Y':
-				return 0xFFE0B040;
-			case 'G':
-				return 0xFF8E8E96;
-			case 'L':
-				return 0xFFC6C6CE;
-			default:
-				return 0;
+			return image;
 		}
+		return image.getSubimage(minX, minY, maxX - minX + 1, maxY - minY + 1);
 	}
 }

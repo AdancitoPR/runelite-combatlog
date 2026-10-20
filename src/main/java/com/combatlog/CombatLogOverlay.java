@@ -7,7 +7,6 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
-import java.util.Collections;
 import java.util.List;
 import javax.inject.Inject;
 import net.runelite.client.ui.FontManager;
@@ -29,15 +28,17 @@ class CombatLogOverlay extends OverlayPanel
 	private final CombatLogConfig config;
 	private final MonsterIcons monsterIcons;
 	private final WeaponIcons weaponIcons;
+	private final StyleIcons styleIcons;
 
 	@Inject
-	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
+	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons)
 	{
 		super(plugin);
 		this.combatLog = combatLog;
 		this.config = config;
 		this.monsterIcons = monsterIcons;
 		this.weaponIcons = weaponIcons;
+		this.styleIcons = styleIcons;
 		setPosition(OverlayPosition.TOP_LEFT);
 		setPriority(PRIORITY_LOW);
 		setResizable(false);
@@ -102,12 +103,7 @@ class CombatLogOverlay extends OverlayPanel
 					.build());
 			}
 			panelComponent.getChildren().add(fightTitle(fight));
-			List<AttackRow> attacks = AttackRow.group(fight.visibleHits(snapshot.getView()));
-			if (snapshot.getView() == DamageView.BOTH)
-			{
-				Collections.reverse(attacks);
-			}
-			for (AttackRow attack : attacks)
+			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 			{
 				if (shown >= limit)
 				{
@@ -169,13 +165,14 @@ class CombatLogOverlay extends OverlayPanel
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
-		String[] parts = Hitsplats.parts(attack);
+		boolean special = attack.isSpecial();
+		boolean splash = attack.isSplash();
 		LineComponent kind = LineComponent.builder()
-			.left(incoming ? "Taken" : "Dealt")
-			.leftColor(incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
+			.left(splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt")
+			.leftColor(splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
 			.build();
 		LineComponent amount = LineComponent.builder()
-			.right(parts[0])
+			.right(CombatLogFormatter.rowAmount(attack))
 			.rightColor(DamageColors.forHit(hit))
 			.build();
 		BufferedImage weapon = hitIcon(hit);
@@ -198,6 +195,10 @@ class CombatLogOverlay extends OverlayPanel
 		if (hit.getSource() == DamageSource.THRALL)
 		{
 			return monsterIcons.get(Thralls.iconId(hit));
+		}
+		if (hit.getDirection() == DamageDirection.INCOMING && hit.getCombatStyle() != null)
+		{
+			return styleIcons.get(hit.getCombatStyle());
 		}
 		return weaponIcon(hit);
 	}

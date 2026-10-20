@@ -120,19 +120,11 @@ final class Hitsplats
 	static String[] parts(AttackRow row)
 	{
 		String label = CombatLogFormatter.attackLabel(row);
-		if (row.isBlock())
+		if (row.isBlock() || row.isSplash())
 		{
 			return new String[] {"0", ""};
 		}
-		String number = Integer.toString(row.getTotal());
-		for (HitRecord hit : row.getHits())
-		{
-			if (hit.getKind() == HitKind.MAX_HIT)
-			{
-				number = number + "*";
-				break;
-			}
-		}
+		String number = CombatLogFormatter.rowAmount(row);
 		String note;
 		String split = row.getTotal() + " \u00b7 ";
 		if (label.startsWith(split))
