@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 public final class CombatLogFormatter
 {
@@ -51,9 +52,22 @@ public final class CombatLogFormatter
 	/**
 	 * The number shown on a fight row. A max hit keeps a star beside it.
 	 */
+	public static int countSplashes(Iterable<HitRecord> hits, @Nullable DamageDirection direction)
+	{
+		int count = 0;
+		for (HitRecord hit : hits)
+		{
+			if (hit.isSplash() && (direction == null || hit.getDirection() == direction))
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
 	public static String rowAmount(AttackRow row)
 	{
-		if (row.isBlock())
+		if (row.isBlock() || row.isSplash())
 		{
 			return "0";
 		}
@@ -71,6 +85,10 @@ public final class CombatLogFormatter
 
 	public static String amountLabel(HitRecord hit)
 	{
+		if (hit.isSplash())
+		{
+			return "Splash";
+		}
 		if (hit.isBlock())
 		{
 			return "Block";
@@ -217,7 +235,7 @@ public final class CombatLogFormatter
 			text.append(formatTime(hit.getTimeMillis(), zone)).append('\t');
 			text.append(hit.getTargetName()).append('\t');
 			text.append(hit.getTargetKind() == TargetKind.PLAYER ? "Player" : "NPC").append('\t');
-			text.append(hit.isBlock() ? 0 : hit.getAmount()).append('\t');
+			text.append(hit.isMiss() ? 0 : hit.getAmount()).append('\t');
 			text.append(resultLabel(hit)).append('\t');
 			text.append(hit.getTint() == null ? "" : hit.getTint()).append('\n');
 		}
@@ -229,6 +247,10 @@ public final class CombatLogFormatter
 		if (hit.getKind() == HitKind.MAX_HIT)
 		{
 			return "Max hit";
+		}
+		if (hit.getKind() == HitKind.SPLASH)
+		{
+			return "Splash";
 		}
 		if (hit.getKind() == HitKind.BLOCK)
 		{

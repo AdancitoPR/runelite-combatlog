@@ -21,6 +21,7 @@ final class IncomingStyles
 	private static final int KEEP = 200;
 
 	private final List<Seen> recent = new ArrayList<>();
+	private final List<Seen> playerSpells = new ArrayList<>();
 
 	void noteProjectile(@Nullable Integer npcIndex, int endCycle, boolean magic)
 	{
@@ -42,6 +43,48 @@ final class IncomingStyles
 			}
 		}
 		recent.add(new Seen(npcIndex, endCycle, projectileId, magic));
+	}
+
+	void notePlayerSpell(@Nullable Integer npcIndex, int endCycle)
+	{
+		for (Seen seen : playerSpells)
+		{
+			if (Objects.equals(seen.npcIndex, npcIndex) && seen.endCycle == endCycle)
+			{
+				return;
+			}
+		}
+		playerSpells.add(new Seen(npcIndex, endCycle, 0, true));
+	}
+
+	/**
+	 * True when a spell the player cast is landing on this NPC now.
+	 * A spell with no target matches whichever NPC the zero lands on.
+	 */
+	boolean playerSpellLanding(@Nullable Integer npcIndex, int cycle)
+	{
+		prune(cycle);
+		for (Seen seen : playerSpells)
+		{
+			int gap = seen.endCycle - cycle;
+			if (gap > MATCH_AFTER || gap < -MATCH_BEFORE)
+			{
+				continue;
+			}
+			if (npcIndex == null)
+			{
+				if (seen.npcIndex == null)
+				{
+					return true;
+				}
+				continue;
+			}
+			if (seen.npcIndex == null || seen.npcIndex.equals(npcIndex))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -120,6 +163,22 @@ final class IncomingStyles
 		if (match == null)
 		{
 			return CombatStyle.MELEE;
+		}
+		return projectileStyle(match.projectileId, name, match.magic);
+	}
+
+	/**
+	 * Style of a projectile landing now when the attacker is not known yet.
+	 * No projectile means the hit is not a spell.
+	 */
+	@Nullable
+	CombatStyle landingStyle(int cycle, @Nullable String name)
+	{
+		prune(cycle);
+		Seen match = closest(cycle, null);
+		if (match == null)
+		{
+			return null;
 		}
 		return projectileStyle(match.projectileId, name, match.magic);
 	}
@@ -238,7 +297,13 @@ final class IncomingStyles
 
 	private void prune(int cycle)
 	{
-		Iterator<Seen> iterator = recent.iterator();
+		dropOlderThan(recent, cycle);
+		dropOlderThan(playerSpells, cycle);
+	}
+
+	private static void dropOlderThan(List<Seen> seen, int cycle)
+	{
+		Iterator<Seen> iterator = seen.iterator();
 		while (iterator.hasNext())
 		{
 			if (cycle - iterator.next().endCycle > KEEP)

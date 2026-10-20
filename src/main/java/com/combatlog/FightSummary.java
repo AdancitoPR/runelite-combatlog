@@ -52,7 +52,7 @@ public final class FightSummary
 			{
 				continue;
 			}
-			if (row.isBlock())
+			if (row.isBlock() || row.isSplash())
 			{
 				blocks++;
 			}

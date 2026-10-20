@@ -195,7 +195,7 @@ public class CombatLog
 		{
 			if (hit.getDirection() == DamageDirection.INCOMING)
 			{
-				if (!hit.isBlock())
+				if (!hit.isMiss())
 				{
 					damageTaken += hit.getAmount();
 					incomingHits++;
@@ -211,7 +211,7 @@ public class CombatLog
 				byTarget.put(key, target);
 			}
 
-			if (hit.isBlock())
+			if (hit.isMiss())
 			{
 				if (hit.getSource() == DamageSource.WEAPON)
 				{

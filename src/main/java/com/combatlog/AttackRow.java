@@ -37,6 +37,11 @@ public final class AttackRow
 		return true;
 	}
 
+	public boolean isSplash()
+	{
+		return first().isSplash();
+	}
+
 	public boolean isSpecial()
 	{
 		for (HitRecord hit : hits)
@@ -75,7 +80,7 @@ public final class AttackRow
 	private boolean accepts(HitRecord hit)
 	{
 		HitRecord first = hits.get(0);
-		if (first.isBlock() || hit.isBlock())
+		if (first.isBlock() || hit.isBlock() || first.isSplash() || hit.isSplash())
 		{
 			return false;
 		}
@@ -132,7 +137,7 @@ public final class AttackRow
 		for (AttackRow row : group(hits))
 		{
 			HitRecord first = row.first();
-			if (first.getDirection() == DamageDirection.OUTGOING && first.getSource() == DamageSource.WEAPON && !row.isBlock())
+			if (first.getDirection() == DamageDirection.OUTGOING && first.getSource() == DamageSource.WEAPON && !row.isBlock() && !row.isSplash())
 			{
 				attacks++;
 			}

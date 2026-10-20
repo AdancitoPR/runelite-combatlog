@@ -166,9 +166,10 @@ class CombatLogOverlay extends OverlayPanel
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
 		boolean special = attack.isSpecial();
+		boolean splash = attack.isSplash();
 		LineComponent kind = LineComponent.builder()
-			.left(special ? "Spec" : incoming ? "Taken" : "Dealt")
-			.leftColor(special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
+			.left(splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt")
+			.leftColor(splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
 			.build();
 		LineComponent amount = LineComponent.builder()
 			.right(CombatLogFormatter.rowAmount(attack))

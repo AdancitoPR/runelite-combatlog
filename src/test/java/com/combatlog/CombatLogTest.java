@@ -552,6 +552,72 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(4), one.attackerIndex(1000));
 	}
 
+	@Test
+	public void magicSplashIsLoggedForEitherDirection()
+	{
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_ME, true, false));
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_ME, false, true));
+		assertFalse(MagicSplash.outgoing(HitsplatID.BLOCK_ME, false, false));
+		assertTrue(MagicSplash.outgoing(HitsplatID.BLOCK_OTHER, false, true));
+		assertFalse(MagicSplash.outgoing(HitsplatID.BLOCK_OTHER, true, false));
+		assertFalse(MagicSplash.outgoing(HitsplatID.DAMAGE_ME, true, true));
+		assertTrue(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.MAGIC));
+		assertTrue(MagicSplash.incoming(HitsplatID.BLOCK_OTHER, CombatStyle.MAGIC));
+		assertFalse(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.MELEE));
+		assertFalse(MagicSplash.incoming(HitsplatID.BLOCK_ME, CombatStyle.RANGED));
+		assertFalse(MagicSplash.incoming(HitsplatID.DAMAGE_ME, CombatStyle.MAGIC));
+
+		String[] staff = {"ACCURATE", "AGGRESSIVE", "CONTROLLED", "DEFENSIVE", "CASTING", "DEFENSIVE"};
+		assertEquals("CASTING", SpellStyle.selected(staff, 4, 0));
+		assertEquals("DEFENSIVE_CASTING", SpellStyle.selected(staff, 4, 1));
+		assertFalse(SpellStyle.isCasting(SpellStyle.selected(staff, 0, 0)));
+		assertTrue(SpellStyle.spellProjectile("ACCURATE", staff));
+		String[] bow = {"RANGING", "RANGING", "LONGRANGE"};
+		assertFalse(SpellStyle.spellProjectile(SpellStyle.selected(bow, 0, 0), bow));
+		assertTrue(SpellStyle.spellProjectile("CASTING", bow));
+		assertFalse(SpellStyle.spellProjectile(null, null));
+		assertFalse(SpellStyle.spellProjectile(null, new String[0]));
+
+		assertNull(HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, 301, 4, null, false, false, true, 1_200L));
+		HitRecord splash = HitCapture.capture(HitsplatID.BLOCK_ME, 0, "Goblin", TargetKind.NPC, 301, 4, 1401, false, true, true, 1_200L).asSplash();
+		assertTrue(splash.isSplash());
+		assertEquals("Splash", CombatLogFormatter.amountLabel(splash));
+		assertTrue(splash.describe().startsWith("Splash"));
+
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(splash);
+		Fight fight = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals(10, fight.damageDone());
+		assertEquals(Integer.valueOf(50), FightSummary.accuracy(fight));
+		AttackRow row = AttackRow.group(fight.getHits()).get(0);
+		assertTrue(row.isSplash());
+		assertEquals("0", CombatLogFormatter.rowAmount(row));
+		assertEquals(1, log.summarize(2_000L, 10).getBlocks());
+
+		HitRecord taken = HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Green dragon", TargetKind.NPC, 941, 7, 1_800L, 3, false);
+		assertNull(taken);
+		taken = HitCapture.captureIncoming(HitsplatID.BLOCK_ME, 0, "Green dragon", TargetKind.NPC, 941, 7, 1_800L, 3, true).asSplash().withStyle(CombatStyle.MAGIC);
+		log.add(taken);
+		CombatSnapshot incoming = log.summarize(2_000L, 10, DamageView.INCOMING);
+		assertEquals(0L, incoming.getDamageTaken());
+		assertEquals(1, CombatLogFormatter.countSplashes(incoming.getHits(), DamageDirection.INCOMING));
+
+		IncomingStyles styles = new IncomingStyles();
+		assertFalse(styles.playerSpellLanding(4, 1000));
+		styles.notePlayerSpell(4, 1000);
+		assertTrue(styles.playerSpellLanding(4, 1000));
+		assertFalse(styles.playerSpellLanding(9, 1000));
+		assertFalse(styles.playerSpellLanding(null, 1000));
+		styles.notePlayerSpell(null, 2000);
+		assertTrue(styles.playerSpellLanding(3, 2000));
+		assertTrue(styles.playerSpellLanding(null, 2000));
+		assertFalse(styles.playerSpellLanding(4, 2200));
+		assertNull(styles.landingStyle(1000, "Goblin"));
+		styles.noteProjectile(4, 3000, 1242, false);
+		assertEquals(CombatStyle.MAGIC, styles.landingStyle(3000, "Goblin"));
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

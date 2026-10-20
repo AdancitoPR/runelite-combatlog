@@ -387,10 +387,16 @@ class CombatLogPanel extends PluginPanel
 		if (snapshot.getView() == DamageView.INCOMING)
 		{
 			totalLabel.setText("Damage taken");
-			if (snapshot.getIncomingHits() == 0)
+			int splashes = CombatLogFormatter.countSplashes(snapshot.getHits(), DamageDirection.INCOMING);
+			if (snapshot.getIncomingHits() == 0 && splashes == 0)
 			{
 				showPlainDamage("\u2014");
 				detailValue.setText("Waiting for a hit");
+			}
+			else if (snapshot.getIncomingHits() == 0)
+			{
+				showNumber(DamageColors.INCOMING, "0");
+				detailValue.setText(splashes == 1 ? "1 splash" : splashes + " splashes");
 			}
 			else
 			{
@@ -402,7 +408,8 @@ class CombatLogPanel extends PluginPanel
 		{
 			totalLabel.setText("Dealt / taken");
 			if (snapshot.getDamageHits() == 0 && snapshot.getIncomingHits() == 0 && snapshot.getBlocks() == 0
-				&& CombatLogFormatter.thrallDamage(snapshot.getHits()) == 0)
+				&& CombatLogFormatter.thrallDamage(snapshot.getHits()) == 0
+				&& CombatLogFormatter.countSplashes(snapshot.getHits(), null) == 0)
 			{
 				showPlainDamage("\u2014");
 				detailValue.setText("Waiting for a hit");
@@ -424,7 +431,7 @@ class CombatLogPanel extends PluginPanel
 		{
 			totalLabel.setText("Total damage");
 			showNumber(DamageColors.OUTGOING, "0");
-			detailValue.setText(snapshot.getBlocks() == 1 ? "1 block" : snapshot.getBlocks() + " blocks");
+			detailValue.setText(missDetail(snapshot));
 		}
 		else
 		{
@@ -637,6 +644,23 @@ class CombatLogPanel extends PluginPanel
 		return row;
 	}
 
+	private static String missDetail(CombatSnapshot snapshot)
+	{
+		int splashes = CombatLogFormatter.countSplashes(snapshot.getHits(), DamageDirection.OUTGOING);
+		int blocks = Math.max(0, snapshot.getBlocks() - splashes);
+		if (splashes > 0 && blocks == 0)
+		{
+			return splashes == 1 ? "1 splash" : splashes + " splashes";
+		}
+		if (splashes > 0)
+		{
+			String blockText = blocks == 1 ? "1 block" : blocks + " blocks";
+			String splashText = splashes == 1 ? "1 splash" : splashes + " splashes";
+			return blockText + "  \u00b7  " + splashText;
+		}
+		return snapshot.getBlocks() == 1 ? "1 block" : snapshot.getBlocks() + " blocks";
+	}
+
 	private JPanel attackRow(AttackRow attack, int index, ZoneId zone)
 	{
 		HitRecord hit = attack.first();
@@ -647,9 +671,10 @@ class CombatLogPanel extends PluginPanel
 		row.setBorder(new EmptyBorder(3, 6, 3, 6));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 
-		JLabel kind = new JLabel(special ? "Spec" : incoming ? "Taken" : "Dealt");
+		boolean splash = attack.isSplash();
+		JLabel kind = new JLabel(splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt");
 		kind.setFont(uiFont());
-		kind.setForeground(special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
+		kind.setForeground(splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
 
 		boolean thrall = hit.getSource() == DamageSource.THRALL;
 		JPanel lead = new JPanel(new BorderLayout(6, 0));

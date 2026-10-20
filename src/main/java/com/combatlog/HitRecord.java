@@ -91,6 +91,11 @@ public final class HitRecord
 		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
+	public HitRecord asSplash()
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, HitKind.SPLASH, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
+	}
+
 	public long getTimeMillis()
 	{
 		return timeMillis;
@@ -199,9 +204,19 @@ public final class HitRecord
 		return kind == HitKind.BLOCK;
 	}
 
+	public boolean isSplash()
+	{
+		return kind == HitKind.SPLASH;
+	}
+
+	public boolean isMiss()
+	{
+		return kind == HitKind.BLOCK || kind == HitKind.SPLASH;
+	}
+
 	public boolean countsTowardWeaponDamage()
 	{
-		return direction == DamageDirection.OUTGOING && source == DamageSource.WEAPON && !isBlock();
+		return direction == DamageDirection.OUTGOING && source == DamageSource.WEAPON && !isMiss();
 	}
 
 	public boolean visibleIn(DamageView view)
@@ -224,6 +239,10 @@ public final class HitRecord
 		{
 			description.append("Max hit");
 		}
+		else if (kind == HitKind.SPLASH)
+		{
+			description.append("Splash");
+		}
 		else if (kind == HitKind.BLOCK)
 		{
 			description.append("Block");
@@ -241,7 +260,7 @@ public final class HitRecord
 		{
 			description.append(" (player)");
 		}
-		if (kind != HitKind.BLOCK)
+		if (!isMiss())
 		{
 			description.append(" for ").append(amount);
 		}

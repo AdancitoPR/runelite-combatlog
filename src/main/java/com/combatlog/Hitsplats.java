@@ -120,7 +120,7 @@ final class Hitsplats
 	static String[] parts(AttackRow row)
 	{
 		String label = CombatLogFormatter.attackLabel(row);
-		if (row.isBlock())
+		if (row.isBlock() || row.isSplash())
 		{
 			return new String[] {"0", ""};
 		}
