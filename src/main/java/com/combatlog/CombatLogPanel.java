@@ -26,9 +26,12 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
+import javax.swing.plaf.ScrollBarUI;
 import javax.swing.JScrollPane;
 import javax.swing.JViewport;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.UIManager;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -37,6 +40,8 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.laf.RuneLiteLAF;
+import net.runelite.client.ui.laf.RuneLiteScrollBarUI;
 
 class CombatLogPanel extends PluginPanel
 {
@@ -486,6 +491,8 @@ class CombatLogPanel extends PluginPanel
 		scrollPane.setOpaque(true);
 		scrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		useRuneLiteScrollBar(scrollPane.getVerticalScrollBar());
+		useRuneLiteScrollBar(scrollPane.getHorizontalScrollBar());
 
 		JViewport viewport = scrollPane.getViewport();
 		viewport.setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
@@ -507,6 +514,15 @@ class CombatLogPanel extends PluginPanel
 			wrapped.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		}
 		repaint();
+	}
+
+	private static void useRuneLiteScrollBar(JScrollBar bar)
+	{
+		if (bar == null || !(UIManager.getLookAndFeel() instanceof RuneLiteLAF))
+		{
+			return;
+		}
+		bar.setUI((ScrollBarUI) RuneLiteScrollBarUI.createUI(bar));
 	}
 
 	private JPanel buildButtons()

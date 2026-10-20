@@ -22,6 +22,7 @@ import javax.swing.text.JTextComponent;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.laf.RuneLiteLAF;
+import net.runelite.client.ui.laf.RuneLiteScrollBarUI;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -111,6 +112,7 @@ public class CombatLogPanelTest
 			assertTrue(RuneLiteLAF.setup());
 			CombatLog log = new CombatLog(50);
 			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			assertTrue(scrollPane(panel).getVerticalScrollBar().getUI() instanceof RuneLiteScrollBarUI);
 			JPanel wrapped = panel.getWrappedPanel();
 			Dimension locked = new Dimension(PluginPanel.PANEL_WIDTH + PluginPanel.SCROLLBAR_WIDTH, 0);
 			assertEquals(locked, wrapped.getPreferredSize());

@@ -3,9 +3,11 @@ package com.combatlog;
 import java.time.ZoneOffset;
 import java.util.List;
 import net.runelite.api.HitsplatID;
+import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -515,15 +517,35 @@ public class CombatLogTest
 	public void incomingHitStyleFollowsTheAttack()
 	{
 		IncomingStyles styles = new IncomingStyles();
-		assertEquals(CombatStyle.MELEE, styles.styleFor(4, 1000, "Goblin", false));
+		assertEquals(CombatStyle.MELEE, styles.styleFor(4, 1000, "Goblin"));
 		styles.noteProjectile(4, 1000, false);
-		assertEquals(CombatStyle.RANGED, styles.styleFor(4, 1000, "Chaos dwarf", false));
+		assertEquals(CombatStyle.RANGED, styles.styleFor(4, 1000, "Chaos dwarf"));
 		styles.noteProjectile(7, 1000, false);
-		assertEquals(CombatStyle.MAGIC, styles.styleFor(7, 1000, "Green dragon", false));
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(7, 1000, "Green dragon"));
 		styles.noteProjectile(8, 1000, true);
-		assertEquals(CombatStyle.MAGIC, styles.styleFor(8, 1000, "Guard", false));
-		assertEquals(null, styles.styleFor(null, 1000, "Taken", false));
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(8, 1000, "Guard"));
+		assertEquals(null, styles.styleFor(null, 1000, "Taken"));
 		assertEquals(null, styles.attackerIndex(1000));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(0, "Chaos dwarf", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1245, "Cerberus", false));
+		assertEquals(CombatStyle.MAGIC, IncomingStyles.projectileStyle(1242, "Cerberus", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1477, "Vorkath", true));
+
+		IncomingStyles cerberus = new IncomingStyles();
+		assertEquals(CombatStyle.MELEE, cerberus.styleFor(5, 2000, "Cerberus"));
+		cerberus.noteProjectile(5, 2000, 1245, false);
+		assertEquals(CombatStyle.RANGED, cerberus.styleFor(5, 2000, "Cerberus"));
+		cerberus.noteProjectile(5, 2100, 1242, false);
+		assertEquals(CombatStyle.MAGIC, cerberus.styleFor(5, 2100, "Cerberus"));
+		cerberus.noteProjectile(9, 2200, false);
+		assertEquals(CombatStyle.RANGED, cerberus.styleFor(5, 2200, "Cerberus"));
+		assertEquals(CombatStyle.MELEE, cerberus.styleFor(5, 2400, "Cerberus"));
+
+		WorldPoint tile = new WorldPoint(3200, 3200, 0);
+		assertTrue(IncomingStyles.aimedAt(null, null, null, tile, tile));
+		assertTrue(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3201, 3200, 0), tile));
+		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3204, 3200, 0), tile));
+		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3200, 3200, 1), tile));
 
 		IncomingStyles one = new IncomingStyles();
 		one.noteProjectile(4, 1000, false);

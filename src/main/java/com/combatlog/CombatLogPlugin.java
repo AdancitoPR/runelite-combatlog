@@ -13,6 +13,8 @@ import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Client;
 import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
@@ -391,8 +393,7 @@ public class CombatLogPlugin extends Plugin
 		}
 		if (record.getSource() == DamageSource.WEAPON)
 		{
-			boolean casting = attacker != null && attacker.getGraphic() > 0;
-			record = record.withStyle(incomingStyles.styleFor(npcIndex, client.getGameCycle(), name, casting));
+			record = record.withStyle(incomingStyles.styleFor(npcIndex, client.getGameCycle(), name));
 		}
 		combatLog.add(record);
 		lastHitTick = tick;
@@ -404,18 +405,44 @@ public class CombatLogPlugin extends Plugin
 	{
 		Projectile projectile = event.getProjectile();
 		Player player = client.getLocalPlayer();
-		if (projectile == null || player == null || projectile.getTargetActor() != player)
+		if (projectile == null || player == null)
 		{
 			return;
 		}
 		Actor source = projectile.getSourceActor();
-		if (!(source instanceof NPC))
+		if (source instanceof Player)
 		{
 			return;
 		}
-		NPC npc = (NPC) source;
-		boolean magic = source.getGraphic() > 0 || IncomingStyles.magicName(npc.getName());
-		incomingStyles.noteProjectile(npc.getIndex(), projectile.getEndCycle(), magic);
+		NPC npc = source instanceof NPC ? (NPC) source : null;
+		if (npc != null && isThrall(npc))
+		{
+			return;
+		}
+		boolean aimed = IncomingStyles.aimedAt(
+			projectile.getTargetActor(),
+			projectile.getInteracting(),
+			player,
+			projectile.getTargetPoint(),
+			player.getWorldLocation());
+		if (!aimed && !nearPlayer(projectile.getTarget(), player.getLocalLocation()))
+		{
+			return;
+		}
+		Integer index = npc == null ? null : npc.getIndex();
+		int projectileId = projectile.getId();
+		incomingStyles.noteProjectile(index, projectile.getEndCycle(), projectileId, IncomingStyles.isMagicProjectile(projectileId));
+	}
+
+	private static boolean nearPlayer(@Nullable LocalPoint target, @Nullable LocalPoint player)
+	{
+		if (target == null || player == null)
+		{
+			return false;
+		}
+		int dx = Math.abs(target.getX() - player.getX());
+		int dy = Math.abs(target.getY() - player.getY());
+		return Math.max(dx, dy) <= 256;
 	}
 
 	private NPC interactingNpc()
