@@ -53,6 +53,15 @@ public class CombatLog
 		}
 	}
 
+	@Nullable
+	public Integer currentNpc(@Nullable Integer npcIndex, int tick)
+	{
+		synchronized (lock)
+		{
+			return fights.currentNpc(npcIndex, tick);
+		}
+	}
+
 	public void closeLife(@Nullable Integer npcIndex, int tick)
 	{
 		synchronized (lock)

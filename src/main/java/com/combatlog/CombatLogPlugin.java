@@ -8,6 +8,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
@@ -22,12 +23,14 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
+import net.runelite.api.Projectile;
 import net.runelite.api.VarPlayer;
 import net.runelite.api.Varbits;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.VarbitChanged;
@@ -93,7 +96,11 @@ public class CombatLogPlugin extends Plugin
 	private int playerAttackSplats = 1;
 	private Integer playerAttackIndex;
 	private final List<PendingHit> pending = new ArrayList<>();
+	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private int lastHitTick = -100;
+	private Integer opponentIndex;
+	private String opponentName;
+	private Integer opponentNpcId;
 
 	@Override
 	protected void startUp()
@@ -174,6 +181,10 @@ public class CombatLogPlugin extends Plugin
 				return;
 			}
 			Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
+			if (target instanceof NPC && !isThrall((NPC) target))
+			{
+				rememberOpponent((NPC) target);
+			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
 			playerAttackTick = tick;
@@ -256,6 +267,10 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (!isThrall(npc))
+			{
+				rememberOpponent(npc);
+			}
 		}
 		else if (actor instanceof Player)
 		{
@@ -325,10 +340,41 @@ public class CombatLogPlugin extends Plugin
 
 	private void recordIncoming(HitsplatApplied event, int tick)
 	{
-		NPC attacker = soleAttacker();
-		String name = attacker == null || attacker.getName() == null ? "Taken" : attacker.getName();
-		Integer npcId = attacker == null ? null : npcId(attacker);
-		Integer npcIndex = attacker == null ? null : attacker.getIndex();
+		NPC interacting = interactingNpc();
+		NPC aggro = soleAggro();
+		Integer index = IncomingTarget.index(
+			interacting == null ? null : interacting.getIndex(),
+			incomingStyles.attackerIndex(client.getGameCycle()),
+			combatLog.currentNpc(opponentIndex, tick),
+			aggro == null ? null : aggro.getIndex());
+		NPC attacker = npcByIndex(index);
+		String name;
+		Integer npcId;
+		Integer npcIndex;
+		if (attacker != null)
+		{
+			name = attacker.getName() == null || attacker.getName().isEmpty() ? "Unknown" : attacker.getName();
+			npcId = npcId(attacker);
+			npcIndex = attacker.getIndex();
+		}
+		else if (index != null && index.equals(opponentIndex))
+		{
+			name = opponentName == null || opponentName.isEmpty() ? "Unknown" : opponentName;
+			npcId = opponentNpcId;
+			npcIndex = index;
+		}
+		else if (index != null)
+		{
+			name = "Unknown";
+			npcId = null;
+			npcIndex = index;
+		}
+		else
+		{
+			name = "Taken";
+			npcId = null;
+			npcIndex = null;
+		}
 		HitRecord record = HitCapture.captureIncoming(
 			event.getHitsplat().getHitsplatType(),
 			event.getHitsplat().getAmount(),
@@ -343,12 +389,36 @@ public class CombatLogPlugin extends Plugin
 		{
 			return;
 		}
+		if (record.getSource() == DamageSource.WEAPON)
+		{
+			boolean casting = attacker != null && attacker.getGraphic() > 0;
+			record = record.withStyle(incomingStyles.styleFor(npcIndex, client.getGameCycle(), name, casting));
+		}
 		combatLog.add(record);
 		lastHitTick = tick;
 		queueRefresh();
 	}
 
-	private NPC soleAttacker()
+	@Subscribe
+	public void onProjectileMoved(ProjectileMoved event)
+	{
+		Projectile projectile = event.getProjectile();
+		Player player = client.getLocalPlayer();
+		if (projectile == null || player == null || projectile.getTargetActor() != player)
+		{
+			return;
+		}
+		Actor source = projectile.getSourceActor();
+		if (!(source instanceof NPC))
+		{
+			return;
+		}
+		NPC npc = (NPC) source;
+		boolean magic = source.getGraphic() > 0 || IncomingStyles.magicName(npc.getName());
+		incomingStyles.noteProjectile(npc.getIndex(), projectile.getEndCycle(), magic);
+	}
+
+	private NPC interactingNpc()
 	{
 		Player player = client.getLocalPlayer();
 		if (player == null)
@@ -356,14 +426,24 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		Actor target = player.getInteracting();
-		if (target instanceof NPC)
+		if (!(target instanceof NPC) || isThrall((NPC) target))
 		{
-			return (NPC) target;
+			return null;
+		}
+		return (NPC) target;
+	}
+
+	private NPC soleAggro()
+	{
+		Player player = client.getLocalPlayer();
+		if (player == null)
+		{
+			return null;
 		}
 		NPC found = null;
 		for (NPC npc : client.getNpcs())
 		{
-			if (npc.getInteracting() != player)
+			if (npc.getInteracting() != player || isThrall(npc))
 			{
 				continue;
 			}
@@ -374,6 +454,38 @@ public class CombatLogPlugin extends Plugin
 			found = npc;
 		}
 		return found;
+	}
+
+	@Nullable
+	private NPC npcByIndex(@Nullable Integer index)
+	{
+		if (index == null)
+		{
+			return null;
+		}
+		for (NPC npc : client.getNpcs())
+		{
+			if (npc.getIndex() == index)
+			{
+				return npc;
+			}
+		}
+		return null;
+	}
+
+	private void rememberOpponent(NPC npc)
+	{
+		opponentIndex = npc.getIndex();
+		String name = npc.getName();
+		if (name != null && !name.isEmpty())
+		{
+			opponentName = name;
+		}
+		Integer id = npcId(npc);
+		if (id != null)
+		{
+			opponentNpcId = id;
+		}
 	}
 
 	private int overkill(Actor actor, Integer npcIndex, Integer npcId, int amount)

@@ -54,6 +54,8 @@ class CombatLogPanel extends PluginPanel
 	private final CombatLogConfig config;
 	private final MonsterIcons monsterIcons;
 	private final WeaponIcons weaponIcons;
+	private final TabIcons tabIcons;
+	private final StyleIcons styleIcons;
 	private ConfigManager configManager;
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
@@ -77,13 +79,28 @@ class CombatLogPanel extends PluginPanel
 
 	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
 	{
+		this(combatLog, config, monsterIcons, weaponIcons, null, null);
+	}
+
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons)
+	{
 		super(true);
 		this.combatLog = combatLog;
 		this.config = config;
 		this.monsterIcons = monsterIcons;
 		this.weaponIcons = weaponIcons;
+		this.tabIcons = tabIcons;
+		this.styleIcons = styleIcons;
 		monsterIcons.onLoaded(this::refresh);
 		weaponIcons.onLoaded(this::refresh);
+		if (tabIcons != null)
+		{
+			tabIcons.onLoaded(this::refresh);
+		}
+		if (styleIcons != null)
+		{
+			styleIcons.onLoaded(this::refresh);
+		}
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -141,9 +158,9 @@ class CombatLogPanel extends PluginPanel
 	}
 
 	@Inject
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, ConfigManager configManager)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, ConfigManager configManager)
 	{
-		this(combatLog, config, monsterIcons, weaponIcons);
+		this(combatLog, config, monsterIcons, weaponIcons, tabIcons, styleIcons);
 		this.configManager = configManager;
 	}
 
@@ -154,9 +171,10 @@ class CombatLogPanel extends PluginPanel
 
 	private JPanel buildNorth(JPanel stats)
 	{
-		styleChoice(outgoingButton, DamageView.OUTGOING, TabIcons.sword(), "Outgoing");
-		styleChoice(incomingButton, DamageView.INCOMING, TabIcons.shield(), "Incoming");
-		styleChoice(bothButton, DamageView.BOTH, TabIcons.both(), "Both");
+		styleChoice(outgoingButton, DamageView.OUTGOING, "Outgoing");
+		styleChoice(incomingButton, DamageView.INCOMING, "Incoming");
+		styleChoice(bothButton, DamageView.BOTH, "Both");
+		applyTabIcons();
 		applyView(configuredView(), false);
 
 		JPanel choices = new JPanel(new GridLayout(1, 3, 4, 0));
@@ -173,7 +191,22 @@ class CombatLogPanel extends PluginPanel
 		return north;
 	}
 
-	private void styleChoice(JButton button, DamageView view, BufferedImage icon, String tooltip)
+	private void applyTabIcons()
+	{
+		setTabIcon(outgoingButton, tabIcons == null ? null : tabIcons.sword());
+		setTabIcon(incomingButton, tabIcons == null ? null : tabIcons.shield());
+		setTabIcon(bothButton, tabIcons == null ? null : tabIcons.both());
+	}
+
+	private static void setTabIcon(JButton button, BufferedImage image)
+	{
+		if (image != null)
+		{
+			button.setIcon(new ImageIcon(image));
+		}
+	}
+
+	private void styleChoice(JButton button, DamageView view, String tooltip)
 	{
 		button.setFocusable(false);
 		button.setOpaque(true);
@@ -183,7 +216,6 @@ class CombatLogPanel extends PluginPanel
 		button.setFont(uiFont());
 		button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		button.setText("");
-		button.setIcon(new ImageIcon(icon));
 		button.setToolTipText(tooltip);
 		button.setHorizontalAlignment(SwingConstants.CENTER);
 		button.addMouseListener(new MouseAdapter()
@@ -340,6 +372,7 @@ class CombatLogPanel extends PluginPanel
 
 	void refresh()
 	{
+		applyTabIcons();
 		disarmClear();
 		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
 		JScrollPane scrollPane = getScrollPane();
@@ -615,6 +648,10 @@ class CombatLogPanel extends PluginPanel
 		{
 			lead.add(weaponSlot(hit), BorderLayout.EAST);
 		}
+		else if (incoming && hit.getCombatStyle() != null)
+		{
+			lead.add(styleSlot(hit), BorderLayout.EAST);
+		}
 
 		String[] parts = Hitsplats.parts(attack);
 		JLabel amount = new JLabel(parts[0], SwingConstants.RIGHT);
@@ -740,6 +777,41 @@ class CombatLogPanel extends PluginPanel
 		}
 		icon.setToolTipText("Thrall");
 		return icon;
+	}
+
+	private JLabel styleSlot(HitRecord hit)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(StyleIcons.SIZE, StyleIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		if (styleIcons != null && hit.getCombatStyle() != null)
+		{
+			BufferedImage image = styleIcons.get(hit.getCombatStyle());
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+			icon.setToolTipText(styleName(hit.getCombatStyle()));
+		}
+		return icon;
+	}
+
+	private static String styleName(CombatStyle style)
+	{
+		switch (style)
+		{
+			case RANGED:
+				return "Ranged";
+			case MAGIC:
+				return "Magic";
+			default:
+				return "Melee";
+		}
 	}
 
 	private JLabel weaponSlot(HitRecord hit)

@@ -237,17 +237,74 @@ public class CombatLogTest
 	}
 
 	@Test
-	public void keepsAFifteenTickGapTogetherUntilDeath()
+	public void keepsTheSameNpcTogetherUntilDeath()
 	{
 		CombatLog log = new CombatLog(10);
 		log.add(npcHit(0, "Cerberus", 5, 5862, 10));
 		log.add(npcHit(15, "Cerberus", 5, 5862, 12));
-		assertEquals(1, log.summarize(15_000L, 10).getFights().size());
+		log.add(npcHit(40, "Cerberus", 5, 5862, 8));
+		assertEquals(1, log.summarize(40_000L, 10).getFights().size());
+	}
 
-		CombatLog quiet = new CombatLog(10);
-		quiet.add(npcHit(0, "Goblin", 3, 301, 5));
-		quiet.add(npcHit(17, "Goblin", 3, 301, 6));
-		assertEquals(2, quiet.summarize(17_000L, 10).getFights().size());
+	@Test
+	public void pausingOutgoingDamageKeepsDealtAndTakenOnOneFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(incoming(40, "Goblin", 4, 301, 8));
+		log.add(npcHit(50, "Goblin", 4, 301, 6));
+
+		CombatSnapshot both = log.summarize(50_000L, 10, DamageView.BOTH);
+		assertEquals(1, both.getFights().size());
+		Fight fight = both.getFights().get(0);
+		assertEquals(16, fight.damageDone());
+		assertEquals(8, fight.damageTaken());
+		assertEquals(2, countDirection(fight, DamageDirection.OUTGOING));
+		assertEquals(1, countDirection(fight, DamageDirection.INCOMING));
+	}
+
+	@Test
+	public void unattributedIncomingStaysOnTheOpenFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 8, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(npcHit(55, "Goblin", 4, 301, 4));
+
+		List<Fight> fights = log.summarize(55_000L, 10, DamageView.BOTH).getFights();
+		assertEquals(1, fights.size());
+		assertEquals(14, fights.get(0).damageDone());
+		assertEquals(8, fights.get(0).damageTaken());
+		assertEquals(Integer.valueOf(4), log.currentNpc(4, 55));
+	}
+
+	@Test
+	public void aSecondNpcGetsItsOwnFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(incoming(2, "Goblin", 4, 301, 3));
+		log.add(npcHit(3, "Guard", 8, 302, 5));
+		assertEquals(2, log.summarize(3_000L, 10, DamageView.BOTH).getFights().size());
+	}
+
+	@Test
+	public void incomingTargetStaysOnTheFightAlreadyOpen()
+	{
+		assertEquals(Integer.valueOf(3), IncomingTarget.index(3, 7, 4, 9));
+		assertEquals(Integer.valueOf(7), IncomingTarget.index(null, 7, 4, 9));
+		assertEquals(Integer.valueOf(4), IncomingTarget.index(null, null, 4, 9));
+		assertEquals(Integer.valueOf(9), IncomingTarget.index(null, null, null, 9));
+		assertEquals(null, IncomingTarget.index(null, null, null, null));
+	}
+
+	@Test
+	public void playerFightStillSplitsAfterAQuietGap()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(600L, "Guard", TargetKind.PLAYER, null, null, null, 5, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(12_000L, "Guard", TargetKind.PLAYER, null, null, null, 6, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertEquals(2, log.summarize(12_000L, 10).getFights().size());
 	}
 
 	@Test
@@ -433,6 +490,38 @@ public class CombatLogTest
 		assertEquals(1, snapshot.getDamageHits());
 		assertEquals("3 thrall", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.THRALL)));
 		assertEquals("12 venge", CombatLogFormatter.amountLabel(findSource(snapshot, DamageSource.VENGEANCE)));
+	}
+
+	@Test
+	public void incomingHitStyleFollowsTheAttack()
+	{
+		IncomingStyles styles = new IncomingStyles();
+		assertEquals(CombatStyle.MELEE, styles.styleFor(4, 1000, "Goblin", false));
+		styles.noteProjectile(4, 1000, false);
+		assertEquals(CombatStyle.RANGED, styles.styleFor(4, 1000, "Chaos dwarf", false));
+		styles.noteProjectile(7, 1000, false);
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(7, 1000, "Green dragon", false));
+		styles.noteProjectile(8, 1000, true);
+		assertEquals(CombatStyle.MAGIC, styles.styleFor(8, 1000, "Guard", false));
+		assertEquals(null, styles.styleFor(null, 1000, "Taken", false));
+		assertEquals(null, styles.attackerIndex(1000));
+
+		IncomingStyles one = new IncomingStyles();
+		one.noteProjectile(4, 1000, false);
+		assertEquals(Integer.valueOf(4), one.attackerIndex(1000));
+	}
+
+	private static int countDirection(Fight fight, DamageDirection direction)
+	{
+		int count = 0;
+		for (HitRecord hit : fight.getHits())
+		{
+			if (hit.getDirection() == direction)
+			{
+				count++;
+			}
+		}
+		return count;
 	}
 
 	private static HitRecord findSource(CombatSnapshot snapshot, DamageSource source)

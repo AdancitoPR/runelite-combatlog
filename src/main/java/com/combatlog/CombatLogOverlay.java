@@ -29,15 +29,17 @@ class CombatLogOverlay extends OverlayPanel
 	private final CombatLogConfig config;
 	private final MonsterIcons monsterIcons;
 	private final WeaponIcons weaponIcons;
+	private final StyleIcons styleIcons;
 
 	@Inject
-	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
+	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons)
 	{
 		super(plugin);
 		this.combatLog = combatLog;
 		this.config = config;
 		this.monsterIcons = monsterIcons;
 		this.weaponIcons = weaponIcons;
+		this.styleIcons = styleIcons;
 		setPosition(OverlayPosition.TOP_LEFT);
 		setPriority(PRIORITY_LOW);
 		setResizable(false);
@@ -198,6 +200,10 @@ class CombatLogOverlay extends OverlayPanel
 		if (hit.getSource() == DamageSource.THRALL)
 		{
 			return monsterIcons.get(Thralls.iconId(hit));
+		}
+		if (hit.getDirection() == DamageDirection.INCOMING && hit.getCombatStyle() != null)
+		{
+			return styleIcons.get(hit.getCombatStyle());
 		}
 		return weaponIcon(hit);
 	}

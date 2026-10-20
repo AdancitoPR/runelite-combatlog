@@ -29,6 +29,8 @@ public final class HitRecord
 	private final int sequence;
 	@Nullable
 	private final Integer sourceNpcId;
+	@Nullable
+	private final CombatStyle combatStyle;
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint)
 	{
@@ -41,6 +43,11 @@ public final class HitRecord
 	}
 
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId)
+	{
+		this(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, null);
+	}
+
+	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId, @Nullable CombatStyle combatStyle)
 	{
 		this.timeMillis = timeMillis;
 		this.targetName = targetName;
@@ -60,22 +67,28 @@ public final class HitRecord
 		this.fightId = fightId;
 		this.sequence = sequence;
 		this.sourceNpcId = sourceNpcId != null && sourceNpcId > 0 ? sourceNpcId : null;
+		this.combatStyle = combatStyle;
 	}
 
 	public HitRecord withMeta(int tick, @Nullable Long fightId, @Nullable Long attackId, @Nullable Integer weaponItemId, boolean special, DamageSource source, int overkill, int sequence)
 	{
 		Integer weapon = weaponItemId != null && weaponItemId > 0 ? weaponItemId : this.weaponItemId;
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weapon, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public HitRecord withSourceNpc(@Nullable Integer sourceNpcId)
 	{
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public HitRecord asSource(DamageSource source, @Nullable Integer weaponItemId, @Nullable Integer sourceNpcId)
 	{
-		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId);
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
+	}
+
+	public HitRecord withStyle(@Nullable CombatStyle combatStyle)
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle);
 	}
 
 	public long getTimeMillis()
@@ -173,6 +186,12 @@ public final class HitRecord
 	public Integer getSourceNpcId()
 	{
 		return sourceNpcId;
+	}
+
+	@Nullable
+	public CombatStyle getCombatStyle()
+	{
+		return combatStyle;
 	}
 
 	public boolean isBlock()

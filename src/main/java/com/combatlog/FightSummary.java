@@ -7,6 +7,10 @@ import javax.annotation.Nullable;
 
 public final class FightSummary
 {
+	/**
+	 * Fallback split for a fight that is not tied to one NPC. An NPC life
+	 * stays one log until that NPC dies or despawns.
+	 */
 	static final int QUIET_TICKS = 16;
 	static final int LATE_TICKS = 4;
 	static final double TICK_SECONDS = 0.6;
