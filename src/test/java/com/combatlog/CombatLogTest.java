@@ -462,6 +462,25 @@ public class CombatLogTest
 		List<AttackRow> rows = AttackRow.group(java.util.Arrays.asList(first, second));
 		assertEquals(1, rows.size());
 		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
+		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
+
+		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
+		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
+		assertEquals("40*", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
+	}
+
+	@Test
+	public void eachFightListsTheNewestHitFirst()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 5));
+		log.add(incoming(2, "Goblin", 4, 301, 8));
+		log.add(npcHit(3, "Goblin", 4, 301, 11));
+		Fight fight = log.summarize(3_000L, 10, DamageView.BOTH).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.BOTH));
+		assertEquals(11, rows.get(0).getTotal());
+		assertEquals(8, rows.get(1).getTotal());
+		assertEquals(5, rows.get(2).getTotal());
 	}
 
 	@Test

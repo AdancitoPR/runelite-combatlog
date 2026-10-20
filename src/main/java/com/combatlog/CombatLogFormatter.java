@@ -48,6 +48,27 @@ public final class CombatLogFormatter
 		return String.format("%.1f", average);
 	}
 
+	/**
+	 * The number shown on a fight row. A max hit keeps a star beside it.
+	 */
+	public static String rowAmount(AttackRow row)
+	{
+		if (row.isBlock())
+		{
+			return "0";
+		}
+		String text = Integer.toString(row.getTotal());
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.getKind() == HitKind.MAX_HIT)
+			{
+				text += "*";
+				break;
+			}
+		}
+		return text;
+	}
+
 	public static String amountLabel(HitRecord hit)
 	{
 		if (hit.isBlock())

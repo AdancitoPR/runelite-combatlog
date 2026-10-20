@@ -14,7 +14,6 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -544,12 +543,7 @@ class CombatLogPanel extends PluginPanel
 			hitsPanel.add(fightHeader(fight, open));
 			if (open)
 			{
-				List<AttackRow> attacks = AttackRow.group(fight.visibleHits(snapshot.getView()));
-				if (snapshot.getView() == DamageView.BOTH)
-				{
-					Collections.reverse(attacks);
-				}
-				for (AttackRow attack : attacks)
+				for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 				{
 					hitsPanel.add(attackRow(attack, index, zone));
 					index++;
@@ -631,14 +625,15 @@ class CombatLogPanel extends PluginPanel
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
+		boolean special = attack.isSpecial();
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
 		row.setBorder(new EmptyBorder(3, 6, 3, 6));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 
-		JLabel kind = new JLabel(incoming ? "Taken" : "Dealt");
+		JLabel kind = new JLabel(special ? "Spec" : incoming ? "Taken" : "Dealt");
 		kind.setFont(uiFont());
-		kind.setForeground(incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
+		kind.setForeground(special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
 
 		boolean thrall = hit.getSource() == DamageSource.THRALL;
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
@@ -653,8 +648,7 @@ class CombatLogPanel extends PluginPanel
 			lead.add(styleSlot(hit), BorderLayout.EAST);
 		}
 
-		String[] parts = Hitsplats.parts(attack);
-		JLabel amount = new JLabel(parts[0], SwingConstants.RIGHT);
+		JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
 		amount.setFont(uiFont());
 		amount.setForeground(DamageColors.forHit(hit));
 		holdWidth(amount);

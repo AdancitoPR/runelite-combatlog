@@ -12,6 +12,7 @@ final class DamageColors
 	static final Color OUTGOING = new Color(255, 64, 64);
 	static final Color INCOMING = new Color(90, 150, 255);
 	static final Color BLOCK = new Color(150, 150, 150);
+	static final Color SPEC = new Color(255, 214, 90);
 
 	private DamageColors()
 	{
