@@ -4,17 +4,21 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 import javax.imageio.ImageIO;
+import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 /**
  * Small transparent renders of the NPC that was hit. Images come from the
@@ -28,14 +32,23 @@ class MonsterIcons
 	private static final int MAX_BYTES = 2_000_000;
 	private static final String ICON_URL = "https://chisel.weirdgloop.org/static/img/osrs-npc/%d_128.png";
 
-	private final HttpClient http = HttpClient.newBuilder()
-		.followRedirects(HttpClient.Redirect.NORMAL)
-		.connectTimeout(Duration.ofSeconds(5))
-		.build();
+	@Nullable
+	private final OkHttpClient http;
 	private final ConcurrentHashMap<Integer, BufferedImage> icons = new ConcurrentHashMap<>();
 	private final Set<Integer> pending = ConcurrentHashMap.newKeySet();
 	private final Set<Integer> missing = ConcurrentHashMap.newKeySet();
 	private volatile Runnable onLoaded;
+
+	MonsterIcons()
+	{
+		this(null);
+	}
+
+	@Inject
+	MonsterIcons(@Nullable OkHttpClient http)
+	{
+		this.http = http;
+	}
 
 	void onLoaded(Runnable callback)
 	{
@@ -50,36 +63,56 @@ class MonsterIcons
 			return icon;
 		}
 
-		HttpRequest request = HttpRequest.newBuilder(URI.create(String.format(ICON_URL, npcId)))
-			.timeout(Duration.ofSeconds(8))
-			.header("User-Agent", "RuneLite-CombatLog")
-			.GET()
+		if (http == null)
+		{
+			pending.remove(npcId);
+			return null;
+		}
+
+		Request request = new Request.Builder()
+			.url(String.format(ICON_URL, npcId))
 			.build();
-		http.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
-			.whenComplete((response, error) -> finish(npcId, response, error));
+		http.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException error)
+			{
+				finish(npcId, null, error);
+			}
+
+			@Override
+			public void onResponse(Call call, Response response)
+			{
+				try (ResponseBody body = response.body())
+				{
+					byte[] bytes = response.isSuccessful() && body != null ? body.bytes() : null;
+					finish(npcId, bytes, null);
+				}
+				catch (IOException ex)
+				{
+					finish(npcId, null, ex);
+				}
+			}
+		});
 		return null;
 	}
 
-	private void finish(int npcId, HttpResponse<byte[]> response, Throwable error)
+	private void finish(int npcId, @Nullable byte[] body, @Nullable Throwable error)
 	{
 		try
 		{
-			if (error == null && response != null && response.statusCode() == 200)
+			if (error == null && body != null && body.length > 0 && body.length <= MAX_BYTES)
 			{
-				byte[] body = response.body();
-				if (body != null && body.length > 0 && body.length <= MAX_BYTES)
+				BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(body));
+				if (decoded != null)
 				{
-					BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(body));
-					if (decoded != null)
+					icons.put(npcId, toIcon(decoded));
+					Runnable callback = onLoaded;
+					if (callback != null)
 					{
-						icons.put(npcId, toIcon(decoded));
-						Runnable callback = onLoaded;
-						if (callback != null)
-						{
-							SwingUtilities.invokeLater(callback);
-						}
-						return;
+						SwingUtilities.invokeLater(callback);
 					}
+					return;
 				}
 			}
 			missing.add(npcId);
