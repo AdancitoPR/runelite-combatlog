@@ -3,6 +3,8 @@ package com.combatlog;
 import java.time.ZoneOffset;
 import java.util.List;
 import net.runelite.api.HitsplatID;
+import net.runelite.api.Prayer;
+import net.runelite.api.SpriteID;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
@@ -342,27 +344,42 @@ public class CombatLogTest
 		log.noteAttack(9, 5, "Cerberus", 4151, 4);
 		log.closeLife(5, 21);
 		Fight fight = log.summarize(21_000L, 10).getFights().get(0);
-		assertEquals("12.6s · 100% · lost 5", FightSummary.footer(fight, 21, DamageView.OUTGOING));
+		assertEquals("12.6s · Accuracy 100% · Lost\u00a0ticks:\u00a05", FightSummary.footer(fight, 21, DamageView.OUTGOING));
+		assertEquals("12.6s · Acc 100% · Lost\u00a0ticks:\u00a05", FightSummary.footer(fight, 21, DamageView.OUTGOING, true));
 	}
 
 	@Test
 	public void marksSpecOnlyForTheBoundTarget()
 	{
 		SpecMarker marker = new SpecMarker();
-		marker.arm(1, 13652);
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.THRALL));
+		marker.arm(1, 13652, 5);
+		int serial = marker.serial();
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.THRALL, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, 0));
 
-		marker.arm(1, 1333);
-		assertTrue(!marker.claim(2, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		marker.arm(1, 1333, 8);
+		serial = marker.serial();
+		assertTrue(!marker.claim(2, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(null, 29577, 10);
+		marker.retarget(4, 10);
+		serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
 		assertEquals(2, SpecWeapons.splats(1215));
-		assertEquals(4, SpecWeapons.splats(29577));
+		assertEquals(3, SpecWeapons.splats(29577));
+		assertEquals(3, SpecWeapons.splats(33200));
+		assertEquals(4, SpecWeapons.splats(13652));
+		assertEquals(4, SpecWeapons.splats(26708));
 		assertEquals(1, SpecWeapons.splats(1333));
 	}
 
@@ -399,6 +416,18 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void sameTickWeaponSwitchReplacesTheAttackSnapshot()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(8, "Guard", 4, 301, 1));
+		log.noteAttack(10, 4, "Guard", 29589, 4);
+		log.retargetWeapon(10, 4, 25865, 5);
+		assertEquals(Integer.valueOf(25865), log.weaponFor(4, 12, 29589));
+		log.retargetWeapon(14, 4, 29589, 4);
+		assertEquals(Integer.valueOf(25865), log.weaponFor(4, 12, 29589));
+	}
+
+	@Test
 	public void accuracyCountsWeaponHitsAndBlocks()
 	{
 		CombatLog log = new CombatLog(10);
@@ -423,7 +452,7 @@ public class CombatLogTest
 		log.add(new HitRecord(0L, "Goblin", TargetKind.NPC, 301, 4, null, 42, HitKind.HIT, null, 0, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 6, null, null, 0));
 		log.closeLife(4, 10);
 		Fight fight = log.summarize(10_000L, 10).getFights().get(0);
-		assertEquals("6.0s · 100%", FightSummary.footer(fight, 10, DamageView.OUTGOING));
+		assertEquals("6.0s · Accuracy 100%", FightSummary.footer(fight, 10, DamageView.OUTGOING));
 		assertEquals("42 (6 overkill)", CombatLogFormatter.amountLabel(fight.getHits().get(0)));
 		assertEquals(6, Overkill.amount(42, 30, 30, 36, true));
 		assertEquals(0, Overkill.amount(42, 30, 30, -1, true));
@@ -468,7 +497,7 @@ public class CombatLogTest
 
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
-		assertEquals("40*", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
+		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
 	}
 
 	@Test
@@ -616,6 +645,32 @@ public class CombatLogTest
 		assertNull(styles.landingStyle(1000, "Goblin"));
 		styles.noteProjectile(4, 3000, 1242, false);
 		assertEquals(CombatStyle.MAGIC, styles.landingStyle(3000, "Goblin"));
+	}
+
+	@Test
+	public void offensivePrayerPrefersTheDamagePrayer()
+	{
+		OffensivePrayers.Icon piety = OffensivePrayers.active(prayer -> prayer == Prayer.PIETY);
+		assertEquals("Piety", piety.getName());
+		assertEquals(SpriteID.PRAYER_PIETY, piety.getSpriteId());
+		assertEquals("Piety", OffensivePrayers.name(piety.getSpriteId()));
+
+		OffensivePrayers.Icon strength = OffensivePrayers.active(prayer ->
+			prayer == Prayer.ULTIMATE_STRENGTH || prayer == Prayer.INCREDIBLE_REFLEXES);
+		assertEquals("Ultimate Strength", strength.getName());
+
+		assertEquals("Piety", OffensivePrayers.active(prayer ->
+			prayer == Prayer.PIETY || prayer == Prayer.ULTIMATE_STRENGTH).getName());
+		assertEquals("Rigour", OffensivePrayers.active(prayer -> prayer == Prayer.RIGOUR).getName());
+		assertEquals("Augury", OffensivePrayers.active(prayer -> prayer == Prayer.AUGURY).getName());
+		assertNull(OffensivePrayers.active(prayer -> prayer == Prayer.STEEL_SKIN || prayer == Prayer.PROTECT_FROM_MELEE));
+		assertNull(OffensivePrayers.active(prayer -> false));
+
+		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withPrayer(piety.getSpriteId());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
+		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
 	}
 
 	private static int countDirection(Fight fight, DamageDirection direction)

@@ -103,6 +103,14 @@ public class CombatLog
 		}
 	}
 
+	public void retargetWeapon(int tick, @Nullable Integer npcIndex, int weaponItemId, int speed)
+	{
+		synchronized (lock)
+		{
+			fights.retargetWeapon(tick, npcIndex, weaponItemId, speed);
+		}
+	}
+
 	public boolean hasRecentAttack(@Nullable Integer npcIndex, int tick)
 	{
 		synchronized (lock)

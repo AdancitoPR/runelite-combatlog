@@ -5,6 +5,7 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(CombatLogConfig.GROUP)
 public interface CombatLogConfig extends Config
@@ -109,5 +110,19 @@ public interface CombatLogConfig extends Config
 	default int overlayHits()
 	{
 		return 6;
+	}
+
+	@Range(min = 120, max = 400)
+	@Units(Units.PIXELS)
+	@ConfigItem(
+		keyName = "overlayWidth",
+		name = "Overlay width",
+		description = "Width of the overlay box.",
+		position = 13,
+		section = overlaySection
+	)
+	default int overlayWidth()
+	{
+		return 140;
 	}
 }

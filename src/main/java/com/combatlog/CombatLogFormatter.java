@@ -50,7 +50,7 @@ public final class CombatLogFormatter
 	}
 
 	/**
-	 * The number shown on a fight row. A max hit keeps a star beside it.
+	 * The number shown on a fight row. A max hit is marked beside the number.
 	 */
 	public static int countSplashes(Iterable<HitRecord> hits, @Nullable DamageDirection direction)
 	{
@@ -76,7 +76,7 @@ public final class CombatLogFormatter
 		{
 			if (hit.getKind() == HitKind.MAX_HIT)
 			{
-				text += "*";
+				text += " (Max hit)";
 				break;
 			}
 		}
@@ -96,7 +96,7 @@ public final class CombatLogFormatter
 		String text = Integer.toString(hit.getAmount());
 		if (hit.getKind() == HitKind.MAX_HIT)
 		{
-			text += "*";
+			text += " (Max hit)";
 		}
 		if (hit.getOverkill() > 0)
 		{
@@ -150,7 +150,7 @@ public final class CombatLogFormatter
 			{
 				if (hit.getKind() == HitKind.MAX_HIT)
 				{
-					text += "*";
+					text += " (Max hit)";
 					break;
 				}
 			}
@@ -178,7 +178,7 @@ public final class CombatLogFormatter
 			parts.append(hit.getAmount());
 			if (hit.getKind() == HitKind.MAX_HIT)
 			{
-				parts.append('*');
+				parts.append(" (Max hit)");
 			}
 		}
 		String text = row.getTotal() + " · " + parts;
@@ -197,7 +197,7 @@ public final class CombatLogFormatter
 	public static String toClipboardText(CombatSnapshot snapshot, ZoneId zone)
 	{
 		StringBuilder text = new StringBuilder();
-		text.append("Combat log\n");
+		text.append(CombatLogPlugin.NAME).append('\n');
 		text.append("Total damage: ").append(formatDamage(snapshot.getTotalDamage())).append('\n');
 		text.append("Hits: ").append(snapshot.getDamageHits()).append('\n');
 		text.append("Blocks: ").append(snapshot.getBlocks()).append('\n');
