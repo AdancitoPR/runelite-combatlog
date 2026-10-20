@@ -3,6 +3,8 @@ package com.combatlog;
 import java.time.ZoneOffset;
 import java.util.List;
 import net.runelite.api.HitsplatID;
+import net.runelite.api.Prayer;
+import net.runelite.api.SpriteID;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
@@ -349,20 +351,34 @@ public class CombatLogTest
 	public void marksSpecOnlyForTheBoundTarget()
 	{
 		SpecMarker marker = new SpecMarker();
-		marker.arm(1, 13652);
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.THRALL));
+		marker.arm(1, 13652, 5);
+		int serial = marker.serial();
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.THRALL, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, 0));
 
-		marker.arm(1, 1333);
-		assertTrue(!marker.claim(2, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
-		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON));
+		marker.arm(1, 1333, 8);
+		serial = marker.serial();
+		assertTrue(!marker.claim(2, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(null, 29577, 10);
+		marker.retarget(4, 10);
+		serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
 		assertEquals(2, SpecWeapons.splats(1215));
-		assertEquals(4, SpecWeapons.splats(29577));
+		assertEquals(3, SpecWeapons.splats(29577));
+		assertEquals(3, SpecWeapons.splats(33200));
+		assertEquals(4, SpecWeapons.splats(13652));
+		assertEquals(4, SpecWeapons.splats(26708));
 		assertEquals(1, SpecWeapons.splats(1333));
 	}
 
@@ -616,6 +632,32 @@ public class CombatLogTest
 		assertNull(styles.landingStyle(1000, "Goblin"));
 		styles.noteProjectile(4, 3000, 1242, false);
 		assertEquals(CombatStyle.MAGIC, styles.landingStyle(3000, "Goblin"));
+	}
+
+	@Test
+	public void offensivePrayerPrefersTheDamagePrayer()
+	{
+		OffensivePrayers.Icon piety = OffensivePrayers.active(prayer -> prayer == Prayer.PIETY);
+		assertEquals("Piety", piety.getName());
+		assertEquals(SpriteID.PRAYER_PIETY, piety.getSpriteId());
+		assertEquals("Piety", OffensivePrayers.name(piety.getSpriteId()));
+
+		OffensivePrayers.Icon strength = OffensivePrayers.active(prayer ->
+			prayer == Prayer.ULTIMATE_STRENGTH || prayer == Prayer.INCREDIBLE_REFLEXES);
+		assertEquals("Ultimate Strength", strength.getName());
+
+		assertEquals("Piety", OffensivePrayers.active(prayer ->
+			prayer == Prayer.PIETY || prayer == Prayer.ULTIMATE_STRENGTH).getName());
+		assertEquals("Rigour", OffensivePrayers.active(prayer -> prayer == Prayer.RIGOUR).getName());
+		assertEquals("Augury", OffensivePrayers.active(prayer -> prayer == Prayer.AUGURY).getName());
+		assertNull(OffensivePrayers.active(prayer -> prayer == Prayer.STEEL_SKIN || prayer == Prayer.PROTECT_FROM_MELEE));
+		assertNull(OffensivePrayers.active(prayer -> false));
+
+		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withPrayer(piety.getSpriteId());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
+		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
+		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
 	}
 
 	private static int countDirection(Fight fight, DamageDirection direction)

@@ -14,13 +14,23 @@ public final class SpecWeapons
 	{
 		switch (weaponId)
 		{
-			case 1215:
+			case 1215: // dragon dagger
 			case 1231:
 			case 5680:
 			case 5698:
+			case 13265: // abyssal dagger
+			case 13267:
+			case 13269:
+			case 13271:
 				return 2;
-			case 13652:
-			case 29577:
+			case 29577: // burning claws
+			case 33200:
+				return 3;
+			case 13652: // dragon claws
+			case 20784:
+			case 26708:
+			case 28039:
+			case 28534:
 				return 4;
 			default:
 				return 1;

@@ -29,9 +29,10 @@ class CombatLogOverlay extends OverlayPanel
 	private final MonsterIcons monsterIcons;
 	private final WeaponIcons weaponIcons;
 	private final StyleIcons styleIcons;
+	private final PrayerIcons prayerIcons;
 
 	@Inject
-	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons)
+	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons, PrayerIcons prayerIcons)
 	{
 		super(plugin);
 		this.combatLog = combatLog;
@@ -39,6 +40,7 @@ class CombatLogOverlay extends OverlayPanel
 		this.monsterIcons = monsterIcons;
 		this.weaponIcons = weaponIcons;
 		this.styleIcons = styleIcons;
+		this.prayerIcons = prayerIcons;
 		setPosition(OverlayPosition.TOP_LEFT);
 		setPriority(PRIORITY_LOW);
 		setResizable(false);
@@ -200,7 +202,29 @@ class CombatLogOverlay extends OverlayPanel
 		{
 			return styleIcons.get(hit.getCombatStyle());
 		}
-		return weaponIcon(hit);
+		return beside(weaponIcon(hit), prayerIcon(hit));
+	}
+
+	private BufferedImage prayerIcon(HitRecord hit)
+	{
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() != DamageSource.WEAPON || prayerIcons == null)
+		{
+			return null;
+		}
+		return prayerIcons.get(hit.getPrayerIcon());
+	}
+
+	private static BufferedImage beside(BufferedImage weapon, BufferedImage prayer)
+	{
+		if (weapon == null)
+		{
+			return prayer;
+		}
+		if (prayer == null)
+		{
+			return weapon;
+		}
+		return Hitsplats.beside(weapon, prayer);
 	}
 
 	private BufferedImage weaponIcon(HitRecord hit)

@@ -60,6 +60,7 @@ class CombatLogPanel extends PluginPanel
 	private final WeaponIcons weaponIcons;
 	private final TabIcons tabIcons;
 	private final StyleIcons styleIcons;
+	private final PrayerIcons prayerIcons;
 	private ConfigManager configManager;
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
@@ -83,10 +84,10 @@ class CombatLogPanel extends PluginPanel
 
 	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
 	{
-		this(combatLog, config, monsterIcons, weaponIcons, null, null);
+		this(combatLog, config, monsterIcons, weaponIcons, null, null, null);
 	}
 
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons)
 	{
 		super(true);
 		this.combatLog = combatLog;
@@ -95,6 +96,7 @@ class CombatLogPanel extends PluginPanel
 		this.weaponIcons = weaponIcons;
 		this.tabIcons = tabIcons;
 		this.styleIcons = styleIcons;
+		this.prayerIcons = prayerIcons;
 		monsterIcons.onLoaded(this::refresh);
 		weaponIcons.onLoaded(this::refresh);
 		if (tabIcons != null)
@@ -104,6 +106,10 @@ class CombatLogPanel extends PluginPanel
 		if (styleIcons != null)
 		{
 			styleIcons.onLoaded(this::refresh);
+		}
+		if (prayerIcons != null)
+		{
+			prayerIcons.onLoaded(this::refresh);
 		}
 
 		setLayout(new BorderLayout());
@@ -162,9 +168,9 @@ class CombatLogPanel extends PluginPanel
 	}
 
 	@Inject
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, ConfigManager configManager)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons, ConfigManager configManager)
 	{
-		this(combatLog, config, monsterIcons, weaponIcons, tabIcons, styleIcons);
+		this(combatLog, config, monsterIcons, weaponIcons, tabIcons, styleIcons, prayerIcons);
 		this.configManager = configManager;
 	}
 
@@ -680,9 +686,9 @@ class CombatLogPanel extends PluginPanel
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!thrall && hit.getWeaponItemId() != null)
+		if (!thrall && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null))
 		{
-			lead.add(weaponSlot(hit), BorderLayout.EAST);
+			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
 		else if (incoming && hit.getCombatStyle() != null)
 		{
@@ -847,6 +853,52 @@ class CombatLogPanel extends PluginPanel
 			default:
 				return "Melee";
 		}
+	}
+
+	private JPanel dealtIcons(HitRecord hit)
+	{
+		JPanel icons = new JPanel();
+		icons.setLayout(new BoxLayout(icons, BoxLayout.X_AXIS));
+		icons.setOpaque(false);
+		if (hit.getWeaponItemId() != null)
+		{
+			icons.add(weaponSlot(hit));
+		}
+		if (hit.getPrayerIcon() != null)
+		{
+			if (icons.getComponentCount() > 0)
+			{
+				icons.add(Box.createHorizontalStrut(3));
+			}
+			icons.add(prayerSlot(hit));
+		}
+		return icons;
+	}
+
+	private JLabel prayerSlot(HitRecord hit)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(PrayerIcons.SIZE, PrayerIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		if (prayerIcons != null)
+		{
+			BufferedImage image = prayerIcons.get(hit.getPrayerIcon());
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+		}
+		String name = hit.getPrayerIcon() == null ? null : OffensivePrayers.name(hit.getPrayerIcon());
+		if (name != null)
+		{
+			icon.setToolTipText(name);
+		}
+		return icon;
 	}
 
 	private JLabel weaponSlot(HitRecord hit)

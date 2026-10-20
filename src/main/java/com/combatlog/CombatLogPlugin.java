@@ -100,6 +100,10 @@ public class CombatLogPlugin extends Plugin
 	private int playerAttackTick = -1;
 	private int playerAttackSplats = 1;
 	private Integer playerAttackIndex;
+	private int swingPrayerTick = -1;
+	private Integer swingPrayerIndex;
+	@Nullable
+	private Integer swingPrayerIcon;
 	private final List<PendingHit> pending = new ArrayList<>();
 	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private int lastHitTick = -100;
@@ -194,6 +198,10 @@ public class CombatLogPlugin extends Plugin
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
 			playerAttackTick = tick;
 			playerAttackIndex = index;
+			swingPrayerTick = tick;
+			swingPrayerIndex = index;
+			swingPrayerIcon = offensivePrayerIcon();
+			specMarker.retarget(index, tick);
 			int reserved = specMarker.reserved(index);
 			playerAttackSplats = Math.max(reserved, attackSplats(weapon, target));
 			return;
@@ -216,8 +224,16 @@ public class CombatLogPlugin extends Plugin
 				Player player = client.getLocalPlayer();
 				Actor target = player == null ? null : player.getInteracting();
 				Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
+				if (playerAttackTick == tick && playerAttackIndex != null)
+				{
+					index = playerAttackIndex;
+				}
+				else if (index == null)
+				{
+					index = opponentIndex;
+				}
 				Integer weapon = equippedWeaponId();
-				specMarker.arm(index, weapon == null ? 0 : weapon);
+				specMarker.arm(index, weapon == null ? 0 : weapon, tick);
 			}
 			lastSpecPercent = current;
 		}
@@ -304,7 +320,7 @@ public class CombatLogPlugin extends Plugin
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
 		record = record.withMeta(tick, null, null, weapon, false, burn ? DamageSource.BURN : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick && !recentAttack, weapon, killed));
+		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick && !recentAttack, weapon, killed, specMarker.serial()));
 		lastHitTick = tick;
 	}
 
@@ -578,6 +594,28 @@ public class CombatLogPlugin extends Plugin
 		return stats.getEquipment().getAspeed();
 	}
 
+	@Nullable
+	private Integer offensivePrayerIcon()
+	{
+		OffensivePrayers.Icon icon = OffensivePrayers.active(client::isPrayerActive);
+		return icon == null ? null : icon.getSpriteId();
+	}
+
+	/**
+	 * The prayer from the swing that produced this hit. A hit with no swing
+	 * uses whatever is active when the hitsplat lands.
+	 */
+	@Nullable
+	private Integer prayerFromSwing(@Nullable Integer npcIndex, int tick)
+	{
+		if (swingPrayerTick >= 0 && tick >= swingPrayerTick && tick - swingPrayerTick <= 8
+			&& (npcIndex == null || swingPrayerIndex == null || npcIndex.equals(swingPrayerIndex)))
+		{
+			return swingPrayerIcon;
+		}
+		return offensivePrayerIcon();
+	}
+
 	private boolean playerCasting()
 	{
 		String[] styles = weaponStyles();
@@ -779,8 +817,12 @@ public class CombatLogPlugin extends Plugin
 					: hit.vengeance
 						? DamageSource.VENGEANCE
 						: DamageSource.WEAPON;
-			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source);
+			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
 			HitRecord record = hit.record.withMeta(hit.tick, null, null, source == DamageSource.THRALL ? null : hit.weapon, special, source, hit.record.getOverkill(), 0);
+			if (source == DamageSource.WEAPON)
+			{
+				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
+			}
 			if (source == DamageSource.THRALL)
 			{
 				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
@@ -830,8 +872,9 @@ public class CombatLogPlugin extends Plugin
 		private final boolean vengeance;
 		private final Integer weapon;
 		private final boolean killed;
+		private final int specSerial;
 
-		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeance, Integer weapon, boolean killed)
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeance, Integer weapon, boolean killed, int specSerial)
 		{
 			this.tick = tick;
 			this.record = record;
@@ -840,6 +883,7 @@ public class CombatLogPlugin extends Plugin
 			this.vengeance = vengeance;
 			this.weapon = weapon;
 			this.killed = killed;
+			this.specSerial = specSerial;
 		}
 	}
 
