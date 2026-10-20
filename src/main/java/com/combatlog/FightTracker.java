@@ -136,6 +136,31 @@ final class FightTracker
 		return equipped;
 	}
 
+	/**
+	 * The attack animation can be seen before the equipment packet. A weapon
+	 * change on that same tick is the weapon that swung.
+	 */
+	void retargetWeapon(int tick, @Nullable Integer npcIndex, int weaponItemId, int speed)
+	{
+		for (Fight fight : fights)
+		{
+			fight.replaceWeapon(tick, npcIndex, weaponItemId, speed);
+		}
+		for (int i = 0; i < queued.size(); i++)
+		{
+			AttackSwing swing = queued.get(i);
+			if (swing.getTick() != tick)
+			{
+				continue;
+			}
+			if (npcIndex != null && swing.getNpcIndex() != null && !npcIndex.equals(swing.getNpcIndex()))
+			{
+				continue;
+			}
+			queued.set(i, swing.withWeapon(weaponItemId, speed));
+		}
+	}
+
 	boolean hasRecentAttack(@Nullable Integer npcIndex, int tick)
 	{
 		return latestSwing(npcIndex, tick) != null;

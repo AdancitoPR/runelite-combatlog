@@ -71,6 +71,15 @@ public final class FightSummary
 	@Nullable
 	public static String footer(Fight fight, int nowTick, DamageView view)
 	{
+		return footer(fight, nowTick, view, false);
+	}
+
+	/**
+	 * @param overlay the game overlay uses Acc; the sidebar spells out Accuracy
+	 */
+	@Nullable
+	public static String footer(Fight fight, int nowTick, DamageView view, boolean overlay)
+	{
 		if (!fight.hasTickTiming())
 		{
 			return null;
@@ -92,13 +101,13 @@ public final class FightSummary
 			Integer accuracy = accuracy(fight);
 			if (accuracy != null)
 			{
-				text.append(" · ").append(accuracy).append('%');
+				text.append(" · ").append(overlay ? "Acc " : "Accuracy ").append(accuracy).append('%');
 			}
 		}
 		int lost = lostTicks(fight.getAttacks());
 		if (lost > 0)
 		{
-			text.append(" · lost ").append(lost);
+			text.append(" · Lost\u00a0ticks:\u00a0").append(lost);
 		}
 		return text.toString();
 	}
@@ -125,6 +134,6 @@ public final class FightSummary
 		{
 			return null;
 		}
-		return String.format(Locale.US, "best %.1fs · %d %s", best, kills, kills == 1 ? "kill" : "kills");
+		return String.format(Locale.US, "Best Time %.1fs · %d %s", best, kills, kills == 1 ? "kill" : "kills");
 	}
 }

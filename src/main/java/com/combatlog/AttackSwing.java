@@ -54,4 +54,9 @@ public final class AttackSwing
 	{
 		return attackId;
 	}
+
+	public AttackSwing withWeapon(@Nullable Integer weaponItemId, int speed)
+	{
+		return new AttackSwing(tick, npcIndex, name, weaponItemId, speed, attackId);
+	}
 }

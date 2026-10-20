@@ -65,8 +65,7 @@ class CombatLogPanel extends PluginPanel
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
 
-	private final JLabel totalLabel = new JLabel("Total damage");
-	private final JLabel damageValue = new JLabel("\u2014");
+	private final JPanel totalsBox = new JPanel();
 	private final JLabel detailValue = new JLabel("\u2014");
 	private final JPanel hitsPanel = new JPanel();
 	private final JLabel emptyLabel = new JLabel();
@@ -116,18 +115,12 @@ class CombatLogPanel extends PluginPanel
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		applyScrollChrome();
 
-		totalLabel.setFont(uiFont());
-		totalLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		damageValue.setFont(boldFont(20f));
-		damageValue.setForeground(VALUE);
+		totalsBox.setLayout(new BoxLayout(totalsBox, BoxLayout.Y_AXIS));
+		totalsBox.setOpaque(false);
+		totalsBox.setAlignmentX(LEFT_ALIGNMENT);
 		detailValue.setFont(uiFont());
 		detailValue.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-
-		JPanel totalRow = new JPanel(new BorderLayout(8, 0));
-		totalRow.setOpaque(false);
-		totalRow.setAlignmentX(LEFT_ALIGNMENT);
-		totalRow.add(totalLabel, BorderLayout.WEST);
-		totalRow.add(damageValue, BorderLayout.CENTER);
+		detailValue.setAlignmentX(LEFT_ALIGNMENT);
 
 		JPanel stats = new JPanel();
 		stats.setLayout(new BoxLayout(stats, BoxLayout.Y_AXIS));
@@ -135,7 +128,7 @@ class CombatLogPanel extends PluginPanel
 		stats.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.MEDIUM_GRAY_COLOR),
 			new EmptyBorder(8, 8, 8, 8)));
-		stats.add(totalRow);
+		stats.add(totalsBox);
 		stats.add(Box.createVerticalStrut(2));
 		stats.add(detailValue);
 		add(buildNorth(stats), BorderLayout.NORTH);
@@ -298,43 +291,51 @@ class CombatLogPanel extends PluginPanel
 			new EmptyBorder(5, 4, 3, 4)));
 	}
 
-	private void showPlainDamage(String text)
+	private void showWaiting()
 	{
-		damageValue.setIcon(null);
-		damageValue.setForeground(VALUE);
-		damageValue.setText(text);
+		totalsBox.removeAll();
+		JLabel dash = new JLabel("\u2014");
+		dash.setFont(boldFont(20f));
+		dash.setForeground(VALUE);
+		dash.setAlignmentX(LEFT_ALIGNMENT);
+		totalsBox.add(dash);
 	}
 
-	private void showNumber(Color color, String text)
+	private void showFightTotals(CombatSnapshot snapshot)
 	{
-		damageValue.setIcon(null);
-		damageValue.setForeground(color);
-		damageValue.setText(text);
-	}
-
-	private void showDealtTaken(CombatSnapshot snapshot)
-	{
-		int thrall = CombatLogFormatter.thrallDamage(snapshot.getHits());
-		showColoredNumbers(
-			CombatLogFormatter.formatDamage(snapshot.getTotalDamage()),
-			thrall > 0 ? CombatLogFormatter.formatDamage(thrall) : null,
-			CombatLogFormatter.formatDamage(snapshot.getDamageTaken()));
-	}
-
-	private void showColoredNumbers(String dealt, String thrall, String taken)
-	{
-		StringBuilder html = new StringBuilder("<html><span style='color:rgb(255,64,64)'>").append(dealt).append("</span>");
-		if (thrall != null)
+		totalsBox.removeAll();
+		boolean outgoing = snapshot.getView() != DamageView.INCOMING;
+		boolean incoming = snapshot.getView() != DamageView.OUTGOING;
+		if (outgoing)
 		{
-			html.append("&nbsp;<span style='color:rgb(255,255,255)'>").append(thrall).append("</span>");
+			addTotal("Damage done", CombatLogFormatter.formatDamage(snapshot.getTotalDamage()), DamageColors.OUTGOING);
+			int thrall = CombatLogFormatter.thrallDamage(snapshot.getHits());
+			if (thrall > 0)
+			{
+				addTotal("Thrall damage", CombatLogFormatter.formatDamage(thrall), Color.WHITE);
+			}
 		}
-		if (taken != null)
+		if (incoming)
 		{
-			html.append("&nbsp;&nbsp;<span style='color:rgb(90,150,255)'>").append(taken).append("</span>");
+			addTotal("Taken", CombatLogFormatter.formatDamage(snapshot.getDamageTaken()), DamageColors.INCOMING);
 		}
-		html.append("</html>");
-		damageValue.setIcon(null);
-		damageValue.setText(html.toString());
+	}
+
+	private void addTotal(String label, String value, Color color)
+	{
+		JPanel row = new JPanel(new BorderLayout(8, 0));
+		row.setOpaque(false);
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+		JLabel name = new JLabel(label);
+		name.setFont(uiFont());
+		name.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		JLabel amount = new JLabel(value, SwingConstants.RIGHT);
+		amount.setFont(boldFont(18f));
+		amount.setForeground(color);
+		row.add(name, BorderLayout.WEST);
+		row.add(amount, BorderLayout.EAST);
+		totalsBox.add(row);
 	}
 
 	private void paintChoices()
@@ -392,65 +393,52 @@ class CombatLogPanel extends PluginPanel
 
 		if (snapshot.getView() == DamageView.INCOMING)
 		{
-			totalLabel.setText("Damage taken");
 			int splashes = CombatLogFormatter.countSplashes(snapshot.getHits(), DamageDirection.INCOMING);
 			if (snapshot.getIncomingHits() == 0 && splashes == 0)
 			{
-				showPlainDamage("\u2014");
+				showWaiting();
 				detailValue.setText("Waiting for a hit");
 			}
 			else if (snapshot.getIncomingHits() == 0)
 			{
-				showNumber(DamageColors.INCOMING, "0");
+				showFightTotals(snapshot);
 				detailValue.setText(splashes == 1 ? "1 splash" : splashes + " splashes");
 			}
 			else
 			{
-				showNumber(DamageColors.INCOMING, CombatLogFormatter.formatDamage(snapshot.getDamageTaken()));
+				showFightTotals(snapshot);
 				detailValue.setText(snapshot.getIncomingHits() + (snapshot.getIncomingHits() == 1 ? " hit" : " hits"));
 			}
 		}
 		else if (snapshot.getView() == DamageView.BOTH)
 		{
-			totalLabel.setText("Dealt / taken");
 			if (snapshot.getDamageHits() == 0 && snapshot.getIncomingHits() == 0 && snapshot.getBlocks() == 0
 				&& CombatLogFormatter.thrallDamage(snapshot.getHits()) == 0
 				&& CombatLogFormatter.countSplashes(snapshot.getHits(), null) == 0)
 			{
-				showPlainDamage("\u2014");
+				showWaiting();
 				detailValue.setText("Waiting for a hit");
 			}
 			else
 			{
-				showDealtTaken(snapshot);
+				showFightTotals(snapshot);
 				detailValue.setText(snapshot.getDamageHits() + " dealt  \u00b7  " + snapshot.getIncomingHits() + " taken");
 			}
 		}
 		else if (snapshot.getDamageHits() == 0 && snapshot.getBlocks() == 0 && snapshot.getDamageTaken() == 0
 			&& CombatLogFormatter.thrallDamage(snapshot.getHits()) == 0)
 		{
-			totalLabel.setText("Total damage");
-			showPlainDamage("\u2014");
+			showWaiting();
 			detailValue.setText("Waiting for a hit");
 		}
 		else if (snapshot.getDamageHits() == 0 && CombatLogFormatter.thrallDamage(snapshot.getHits()) == 0)
 		{
-			totalLabel.setText("Total damage");
-			showNumber(DamageColors.OUTGOING, "0");
+			showFightTotals(snapshot);
 			detailValue.setText(missDetail(snapshot));
 		}
 		else
 		{
-			totalLabel.setText("Total damage");
-			int thrall = CombatLogFormatter.thrallDamage(snapshot.getHits());
-			if (thrall > 0)
-			{
-				showColoredNumbers(CombatLogFormatter.formatDamage(snapshot.getTotalDamage()), CombatLogFormatter.formatDamage(thrall), null);
-			}
-			else
-			{
-				showNumber(DamageColors.OUTGOING, CombatLogFormatter.formatDamage(snapshot.getTotalDamage()));
-			}
+			showFightTotals(snapshot);
 			detailValue.setText(snapshot.getDamageHits() + (snapshot.getDamageHits() == 1 ? " hit" : " hits")
 				+ "  \u00b7  max " + snapshot.getMaxHit()
 				+ "  \u00b7  avg " + CombatLogFormatter.formatAverage(snapshot.getAverageHit()));
@@ -581,7 +569,7 @@ class CombatLogPanel extends PluginPanel
 			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
 			if (footer != null)
 			{
-				JLabel footerLabel = new JLabel("<html><body style='width:190px'>" + footer + "</body></html>");
+				JLabel footerLabel = new JLabel("<html><body style='width:209px;white-space:nowrap'>" + footer + "</body></html>");
 				footerLabel.setFont(uiFont());
 				footerLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 				footerLabel.setAlignmentX(LEFT_ALIGNMENT);

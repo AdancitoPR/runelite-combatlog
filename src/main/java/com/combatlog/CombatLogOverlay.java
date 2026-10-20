@@ -3,6 +3,7 @@ package com.combatlog;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -67,15 +68,15 @@ class CombatLogOverlay extends OverlayPanel
 		}
 
 		panelComponent.getChildren().add(TitleComponent.builder()
-			.text("Combat log")
+			.text(CombatLogPlugin.NAME)
 			.build());
 		if (snapshot.getView() != DamageView.INCOMING)
 		{
-			panelComponent.getChildren().add(amountLine("Dealt", snapshot.getTotalDamage(), DamageColors.OUTGOING));
+			panelComponent.getChildren().add(amountLine("Damage done", snapshot.getTotalDamage(), DamageColors.OUTGOING));
 			int thrall = CombatLogFormatter.thrallDamage(snapshot.getHits());
 			if (thrall > 0)
 			{
-				panelComponent.getChildren().add(amountLine("Thrall", thrall, Color.WHITE));
+				panelComponent.getChildren().add(amountLine("Thrall damage", thrall, Color.WHITE));
 			}
 		}
 		if (snapshot.getView() != DamageView.OUTGOING)
@@ -96,7 +97,7 @@ class CombatLogOverlay extends OverlayPanel
 			{
 				panelComponent.getChildren().add(new GroupSeparator());
 			}
-			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
+			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView(), true);
 			if (footer != null)
 			{
 				panelComponent.getChildren().add(LineComponent.builder()
@@ -117,7 +118,25 @@ class CombatLogOverlay extends OverlayPanel
 			drewGroup = true;
 		}
 
+		panelComponent.setPreferredSize(new Dimension(overlayWidth(), 0));
 		return super.render(graphics);
+	}
+
+	private int overlayWidth()
+	{
+		try
+		{
+			int width = config.overlayWidth();
+			if (width < 120)
+			{
+				return 140;
+			}
+			return Math.min(width, 400);
+		}
+		catch (RuntimeException ex)
+		{
+			return 140;
+		}
 	}
 
 	private DamageView damageView()
@@ -169,27 +188,9 @@ class CombatLogOverlay extends OverlayPanel
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
 		boolean special = attack.isSpecial();
 		boolean splash = attack.isSplash();
-		LineComponent kind = LineComponent.builder()
-			.left(splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt")
-			.leftColor(splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING)
-			.build();
-		LineComponent amount = LineComponent.builder()
-			.right(CombatLogFormatter.rowAmount(attack))
-			.rightColor(DamageColors.forHit(hit))
-			.build();
-		BufferedImage weapon = hitIcon(hit);
-		LayoutableRenderableEntity figures = weapon == null ? amount : SplitComponent.builder()
-			.first(new ImageComponent(weapon))
-			.second(amount)
-			.orientation(ComponentOrientation.HORIZONTAL)
-			.gap(new Point(4, 0))
-			.build();
-		return SplitComponent.builder()
-			.first(kind)
-			.second(figures)
-			.orientation(ComponentOrientation.HORIZONTAL)
-			.gap(new Point(6, 0))
-			.build();
+		String kind = splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt";
+		Color kindColor = splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING;
+		return new IconLine(kind, kindColor, CombatLogFormatter.rowAmount(attack), DamageColors.forHit(hit), hitIcon(hit));
 	}
 
 	private BufferedImage hitIcon(HitRecord hit)
@@ -235,6 +236,86 @@ class CombatLogOverlay extends OverlayPanel
 			return null;
 		}
 		return weaponIcons.get(itemId);
+	}
+
+	/**
+	 * One hit, drawn inside the overlay width. The icon sits just left of the
+	 * number so neither one is painted past the panel edge.
+	 */
+	private static final class IconLine implements LayoutableRenderableEntity
+	{
+		private static final int ICON_GAP = 3;
+
+		private final String left;
+		private final Color leftColor;
+		private final String right;
+		private final Color rightColor;
+		private final BufferedImage icon;
+		private Point preferredLocation = new Point();
+		private Dimension preferredSize = new Dimension();
+		private final Rectangle bounds = new Rectangle();
+
+		private IconLine(String left, Color leftColor, String right, Color rightColor, BufferedImage icon)
+		{
+			this.left = left;
+			this.leftColor = leftColor;
+			this.right = right;
+			this.rightColor = rightColor;
+			this.icon = icon;
+		}
+
+		@Override
+		public Dimension render(Graphics2D graphics)
+		{
+			FontMetrics metrics = graphics.getFontMetrics();
+			int textHeight = metrics.getHeight();
+			int iconWidth = icon == null ? 0 : icon.getWidth();
+			int iconHeight = icon == null ? 0 : icon.getHeight();
+			int leftWidth = metrics.stringWidth(left);
+			int rightWidth = metrics.stringWidth(right);
+			int gap = icon == null ? 0 : ICON_GAP;
+			int rowHeight = Math.max(textHeight, iconHeight);
+			int width = preferredSize.width > 0
+				? preferredSize.width
+				: leftWidth + 6 + iconWidth + gap + rightWidth;
+
+			int x = preferredLocation.x;
+			int baseline = preferredLocation.y + (rowHeight - textHeight) / 2 + metrics.getAscent();
+			graphics.setColor(leftColor);
+			graphics.drawString(left, x, baseline);
+			int rightX = x + width - rightWidth;
+			graphics.setColor(rightColor);
+			graphics.drawString(right, rightX, baseline);
+			if (icon != null)
+			{
+				int iconX = Math.max(x + leftWidth + 4, rightX - gap - iconWidth);
+				int iconY = preferredLocation.y + Math.max(0, (rowHeight - iconHeight) / 2);
+				graphics.drawImage(icon, iconX, iconY, null);
+			}
+
+			Dimension size = new Dimension(width, rowHeight);
+			bounds.setLocation(preferredLocation);
+			bounds.setSize(size);
+			return size;
+		}
+
+		@Override
+		public void setPreferredLocation(Point location)
+		{
+			preferredLocation = location;
+		}
+
+		@Override
+		public void setPreferredSize(Dimension size)
+		{
+			preferredSize = size;
+		}
+
+		@Override
+		public Rectangle getBounds()
+		{
+			return bounds;
+		}
 	}
 
 	private static final class GroupSeparator implements LayoutableRenderableEntity

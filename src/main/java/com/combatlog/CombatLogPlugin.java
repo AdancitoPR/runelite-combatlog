@@ -1,6 +1,8 @@
 package com.combatlog;
 
 import com.google.inject.Provides;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,6 +22,7 @@ import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
 import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
+import net.runelite.api.ItemID;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
@@ -35,6 +38,7 @@ import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
@@ -50,17 +54,23 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.AsyncBufferedImage;
 import net.runelite.client.util.ImageUtil;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Combat Log",
+	name = CombatLogPlugin.NAME,
 	description = "Records the hits you land on enemies",
 	tags = {"combat", "damage", "dps", "hitsplat", "log"},
 	enabledByDefault = true
 )
 public class CombatLogPlugin extends Plugin
 {
+	static final String NAME = "Detailed Combat Log";
+	private static final int SIDEBAR_ICON = 16;
+	/** Crops in on the item sprite so the sword fills the sidebar button. */
+	private static final float SIDEBAR_ICON_ZOOM = 1.8f;
+
 	@Inject
 	private Client client;
 
@@ -89,6 +99,7 @@ public class CombatLogPlugin extends Plugin
 	private NPCManager npcManager;
 
 	private NavigationButton navButton;
+	private volatile boolean running;
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
@@ -107,6 +118,8 @@ public class CombatLogPlugin extends Plugin
 	private final List<PendingHit> pending = new ArrayList<>();
 	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private int lastHitTick = -100;
+	@Nullable
+	private Integer lastSeenWeapon;
 	private Integer opponentIndex;
 	private String opponentName;
 	private Integer opponentNpcId;
@@ -114,31 +127,107 @@ public class CombatLogPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		running = true;
 		combatLog.setMaxEntries(config.maxEntries());
-
-		BufferedImage icon = ImageUtil.loadImageResource(getClass(), "combat_log.png");
-		navButton = NavigationButton.builder()
-			.tooltip("Combat Log")
-			.icon(icon)
-			.priority(7)
-			.panel(panel)
-			.build();
-
-		clientToolbar.addNavigation(navButton);
+		loadSidebarIcon();
 		if (config.showOverlay())
 		{
 			overlayManager.add(overlay);
 		}
 		queueRefresh();
-		log.debug("Combat Log started");
+		log.debug("{} started", NAME);
 	}
 
 	@Override
 	protected void shutDown()
 	{
-		clientToolbar.removeNavigation(navButton);
+		running = false;
+		if (navButton != null)
+		{
+			clientToolbar.removeNavigation(navButton);
+			navButton = null;
+		}
 		overlayManager.remove(overlay);
-		log.debug("Combat Log stopped");
+		log.debug("{} stopped", NAME);
+	}
+
+	private void loadSidebarIcon()
+	{
+		try
+		{
+			AsyncBufferedImage arkanBlade = itemManager.getImage(ItemID.ARKAN_BLADE);
+			arkanBlade.onLoaded(() -> SwingUtilities.invokeLater(() -> installNavigation(sidebarIcon(arkanBlade))));
+		}
+		catch (RuntimeException ex)
+		{
+			log.debug("Could not load the Arkan blade icon", ex);
+			installNavigation(ImageUtil.loadImageResource(getClass(), "combat_log.png"));
+		}
+	}
+
+	private void installNavigation(BufferedImage icon)
+	{
+		if (!running || icon == null)
+		{
+			return;
+		}
+		if (navButton != null)
+		{
+			clientToolbar.removeNavigation(navButton);
+		}
+		navButton = NavigationButton.builder()
+			.tooltip(NAME)
+			.icon(icon)
+			.priority(7)
+			.panel(panel)
+			.build();
+		clientToolbar.addNavigation(navButton);
+	}
+
+	private static BufferedImage sidebarIcon(BufferedImage source)
+	{
+		BufferedImage trimmed = trim(source);
+		int width = trimmed.getWidth();
+		int height = trimmed.getHeight();
+		double fit = Math.min(SIDEBAR_ICON / (double) width, SIDEBAR_ICON / (double) height);
+		double scale = fit * SIDEBAR_ICON_ZOOM;
+		int scaledWidth = Math.max(1, (int) Math.round(width * scale));
+		int scaledHeight = Math.max(1, (int) Math.round(height * scale));
+		BufferedImage icon = new BufferedImage(SIDEBAR_ICON, SIDEBAR_ICON, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = icon.createGraphics();
+		graphics.setClip(0, 0, SIDEBAR_ICON, SIDEBAR_ICON);
+		graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+		graphics.drawImage(trimmed, (SIDEBAR_ICON - scaledWidth) / 2, (SIDEBAR_ICON - scaledHeight) / 2, scaledWidth, scaledHeight, null);
+		graphics.dispose();
+		return icon;
+	}
+
+	private static BufferedImage trim(BufferedImage image)
+	{
+		int width = image.getWidth();
+		int height = image.getHeight();
+		int minX = width;
+		int minY = height;
+		int maxX = -1;
+		int maxY = -1;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				if ((image.getRGB(x, y) >>> 24) > 16)
+				{
+					minX = Math.min(minX, x);
+					minY = Math.min(minY, y);
+					maxX = Math.max(maxX, x);
+					maxY = Math.max(maxY, y);
+				}
+			}
+		}
+		if (maxX < minX || maxY < minY)
+		{
+			return image;
+		}
+		return image.getSubimage(minX, minY, maxX - minX + 1, maxY - minY + 1);
 	}
 
 	@Subscribe
@@ -246,6 +335,26 @@ public class CombatLogPlugin extends Plugin
 			}
 			lastVengeance = current;
 		}
+	}
+
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		if (event.getContainerId() != InventoryID.EQUIPMENT.getId())
+		{
+			return;
+		}
+		int tick = client.getTickCount();
+		Integer weapon = equippedWeaponId();
+		if (playerAttackTick == tick && weapon != null && lastSeenWeapon != null && !weapon.equals(lastSeenWeapon))
+		{
+			combatLog.retargetWeapon(tick, playerAttackIndex, weapon, attackSpeed(weapon));
+			Player player = client.getLocalPlayer();
+			Actor target = player == null ? null : player.getInteracting();
+			int reserved = specMarker.reserved(playerAttackIndex);
+			playerAttackSplats = Math.max(reserved, attackSplats(weapon, target));
+		}
+		lastSeenWeapon = weapon;
 	}
 
 	@Subscribe
@@ -818,7 +927,10 @@ public class CombatLogPlugin extends Plugin
 						? DamageSource.VENGEANCE
 						: DamageSource.WEAPON;
 			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
-			HitRecord record = hit.record.withMeta(hit.tick, null, null, source == DamageSource.THRALL ? null : hit.weapon, special, source, hit.record.getOverkill(), 0);
+			Integer weapon = source == DamageSource.THRALL
+				? null
+				: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
+			HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
 			if (source == DamageSource.WEAPON)
 			{
 				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));

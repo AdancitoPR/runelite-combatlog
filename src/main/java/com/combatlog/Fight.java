@@ -144,6 +144,23 @@ public final class Fight
 		attacks.sort(Comparator.comparingInt(AttackSwing::getTick));
 	}
 
+	void replaceWeapon(int tick, @Nullable Integer npcIndex, int weaponItemId, int speed)
+	{
+		for (int i = 0; i < attacks.size(); i++)
+		{
+			AttackSwing swing = attacks.get(i);
+			if (swing.getTick() != tick)
+			{
+				continue;
+			}
+			if (npcIndex != null && swing.getNpcIndex() != null && !npcIndex.equals(swing.getNpcIndex()))
+			{
+				continue;
+			}
+			attacks.set(i, swing.withWeapon(weaponItemId, speed));
+		}
+	}
+
 	void closeKilled(int tick)
 	{
 		closed = true;
