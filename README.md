@@ -12,8 +12,6 @@ A few kills, collapsed. The header is the session total. Each fight has its time
 
 Blocks are recorded by default and do not count toward damage or DPS. Multi-hit weapons log one row per hitsplat.
 
-<img width="323" height="699" alt="image" src="https://github.com/user-attachments/assets/cceb80d0-761f-4544-9472-bfb3430229d7" />
-
 ![Cerberus fight with weapon, prayer, and thrall icons](screenshots/cerberus-hits.png)
 
 
