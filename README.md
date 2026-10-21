@@ -11,6 +11,12 @@ The game client colors **your** damage blue (including max hits and the cyan, ye
 - poison, venom, disease, burn, bleed, or corruption, because those splats are not marked as yours
 
 Blocks are recorded by default and do not count toward damage or DPS. Multi-hit weapons log one row per hitsplat.
+<img width="272" height="385" alt="image" src="https://github.com/user-attachments/assets/09c4b7cd-67d1-424f-b92d-5f07ae94ecec" />
+<img width="282" height="391" alt="image" src="https://github.com/user-attachments/assets/1f58b062-efe7-4ff3-91c9-ba3bba7e4b9d" />
+<img width="323" height="699" alt="image" src="https://github.com/user-attachments/assets/cceb80d0-761f-4544-9472-bfb3430229d7" />
+
+
+
 
 ## Run it
 
