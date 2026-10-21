@@ -1,6 +1,6 @@
 # Detailed Combat Log
 
-Plugin adds a Sidebar panel with a log of the damage done in the fight, divided by NPC and adjustable by incoming, outgoing or combination of both. Plugin specified types of damage, weapon icons, offensive prayers used, type of incoming damage, and summarizes basic fight data. Includes an optional overlay with a summary of the last hits. 
+Plugin adds a Sidebar panel with a log of the damage done in the fight, divided by NPC and adjustable by incoming, outgoing or combination of both. Plugin specifies types of damage, weapon icons, offensive prayers used, type of incoming damage and summarizes basic fight data. Includes an optional overlay with a summary of the last hits. 
 
 Plugin icon identified by the Arkan blade.
 
