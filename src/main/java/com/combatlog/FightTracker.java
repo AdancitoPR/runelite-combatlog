@@ -207,6 +207,25 @@ final class FightTracker
 		return copy;
 	}
 
+	void remove(long fightId)
+	{
+		Fight fight = byId.remove(fightId);
+		if (fight == null)
+		{
+			return;
+		}
+		fights.remove(fight);
+		String key = key(fight);
+		if (open.get(key) == fight)
+		{
+			open.remove(key);
+		}
+		if (lastClosed.get(key) == fight)
+		{
+			lastClosed.remove(key);
+		}
+	}
+
 	void forget(HitRecord hit)
 	{
 		if (hit.getFightId() == null)

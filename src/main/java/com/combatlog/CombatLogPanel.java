@@ -27,7 +27,9 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollBar;
 import javax.swing.plaf.ScrollBarUI;
 import javax.swing.JScrollPane;
@@ -631,6 +633,7 @@ class CombatLogPanel extends PluginPanel
 			block.add(noteLabel(footer, true));
 		}
 		block.add(Box.createVerticalStrut(2));
+		installDeleteMenu(block, fight);
 		hitsPanel.add(block);
 		fitRow(block);
 		return index;
@@ -684,14 +687,10 @@ class CombatLogPanel extends PluginPanel
 		row.add(named, BorderLayout.CENTER);
 		row.add(amount, BorderLayout.EAST);
 		String key = groupKey(first);
-		row.addMouseListener(new MouseAdapter()
+		bindClick(row, () ->
 		{
-			@Override
-			public void mouseClicked(MouseEvent event)
-			{
-				groupsOpen.put(key, !open);
-				refresh();
-			}
+			groupsOpen.put(key, !open);
+			refresh();
 		});
 		fitRow(row);
 		block.add(row);
@@ -718,6 +717,50 @@ class CombatLogPanel extends PluginPanel
 	private static String groupKey(Fight fight)
 	{
 		return fight.getKind() + "\0" + fight.getName();
+	}
+
+	private void installDeleteMenu(Component component, Fight fight)
+	{
+		component.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				showDeleteMenu(event, fight);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event)
+			{
+				showDeleteMenu(event, fight);
+			}
+		});
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				installDeleteMenu(container.getComponent(i), fight);
+			}
+		}
+	}
+
+	private void showDeleteMenu(MouseEvent event, Fight fight)
+	{
+		if (!event.isPopupTrigger())
+		{
+			return;
+		}
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem delete = new JMenuItem("Delete");
+		delete.addActionListener(action ->
+		{
+			expanded.remove(fight.getId());
+			combatLog.removeFight(fight.getId());
+			refresh();
+		});
+		menu.add(delete);
+		menu.show(event.getComponent(), event.getX(), event.getY());
 	}
 
 	private JPanel fightHeader(Fight fight, boolean open)
@@ -756,17 +799,40 @@ class CombatLogPanel extends PluginPanel
 
 		row.add(named, BorderLayout.CENTER);
 		row.add(total, BorderLayout.EAST);
-		row.addMouseListener(new MouseAdapter()
+		bindClick(row, () ->
+		{
+			expanded.put(fight.getId(), !open);
+			refresh();
+		});
+		fitRow(row);
+		return row;
+	}
+
+	/**
+	 * Clicks land on the plus, the name, or the icon, not on the row behind them.
+	 */
+	private static void bindClick(Component component, Runnable action)
+	{
+		component.addMouseListener(new MouseAdapter()
 		{
 			@Override
 			public void mouseClicked(MouseEvent event)
 			{
-				expanded.put(fight.getId(), !open);
-				refresh();
+				if (!SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 1)
+				{
+					return;
+				}
+				action.run();
 			}
 		});
-		fitRow(row);
-		return row;
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				bindClick(container.getComponent(i), action);
+			}
+		}
 	}
 
 	private static String missDetail(CombatSnapshot snapshot)

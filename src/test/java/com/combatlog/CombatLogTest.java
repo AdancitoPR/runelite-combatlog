@@ -446,6 +446,35 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void removeFightDropsOnlyThatLog()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 1, 301, 5));
+		log.closeLife(1, 4);
+		log.add(npcHit(8, "Rat", 2, 2853, 3));
+		List<Fight> before = log.summarize(8_000L, 10).getFights();
+		long goblin = 0;
+		for (Fight fight : before)
+		{
+			if ("Goblin".equals(fight.getName()))
+			{
+				goblin = fight.getId();
+			}
+		}
+		log.removeFight(goblin);
+		CombatSnapshot after = log.summarize(8_000L, 10);
+		assertEquals(1, after.getFights().size());
+		assertEquals("Rat", after.getFights().get(0).getName());
+		assertEquals(1, after.getHits().size());
+
+		log.removeFight(after.getFights().get(0).getId());
+		log.add(npcHit(10, "Rat", 2, 2853, 7));
+		List<Fight> again = log.summarize(10_000L, 10).getFights();
+		assertEquals(1, again.size());
+		assertEquals(7, again.get(0).getHits().get(0).getAmount());
+	}
+
+	@Test
 	public void groupLineAveragesFinishedFightsOfOneMonster()
 	{
 		CombatLog log = new CombatLog(10);
