@@ -14,6 +14,7 @@ Blocks are recorded by default and do not count toward damage or DPS. Multi-hit 
 
 ![Cerberus fight with weapon, prayer, and thrall icons](screenshots/cerberus-hits.png)
 
+Example of both outgoing and incoming damage with an undead cow. Plugin shows the attack style of the damage received and icon of the weapon used and offensive prayer if used.
 
 ![Undead cow fight with dealt and taken rows](screenshots/undead-cow.png)
 
