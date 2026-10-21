@@ -1,48 +1,44 @@
-# Detailed Combat Log
+# Combat Log
 
-Sidebar log of hits you deal and hits you take. One NPC stays one fight until it dies or despawns, so a pause in the middle does not start a second log.
+A RuneLite plugin that records the hits you land on enemies.
 
-The sidebar icon is the Arkan blade.
+Each of your hitsplats becomes a row: who you hit, for how much, and when. The sidebar keeps the full fight, and a small overlay shows session DPS plus the latest hits.
 
-## Examples
+The game client colors **your** damage blue (including max hits and the cyan, yellow, orange, white, and poise variants). This plugin records those. It does not record:
 
-A few Cerberus kills, collapsed. The header is the session total. Each fight has its time, accuracy, and any ticks you dropped past your weapon speed. Best time for that monster is repeated under the fight.
+- damage other players deal
+- damage you take
+- poison, venom, disease, burn, bleed, or corruption, because those splats are not marked as yours
 
-![Collapsed Cerberus fights, with session damage and best time](screenshots/fight-list.png)
-
-Same kind of fight, opened. Dealt rows use the weapon that actually swung and the offensive prayer that was on. Thrall hits use the thrall, in white, instead of your weapon. Newest hit is at the top.
-
-![Cerberus fight with weapon, prayer, and thrall icons](screenshots/cerberus-hits.png)
-
-Both view on an undead cow: red for damage dealt, blue for damage taken. A 0 on a taken row is a block. The footer is the fight length and your accuracy. Specs show up in gold as one summed hit.
-
-![Undead cow fight with dealt and taken rows](screenshots/undead-cow.png)
-
-## What it keeps
-
-Your hitsplats, including the tinted ones (cyan, yellow, orange, white, poise) and max hits. Max hits are marked `(Max hit)` next to the number.
-
-Damage you take is logged too, including poison, venom, burn, and bleed. Other players' hits on your target are not.
-
-Blocks are kept by default and do not add to the damage total. A magic splash is logged as a 0 when the attack was magic. Accuracy is your weapon hits divided by weapon hits plus blocks and splashes. Thralls and other effects stay out of that percentage.
-
-Multi-hit weapons and specs are one row per swing, with the splats added together. A spec is labeled Spec.
-
-The three icons under the totals switch the list between outgoing, incoming, and both. The overlay uses the same view. On the overlay the accuracy label is shortened to Acc so the line fits.
-
-Clear asks you to confirm. Copy puts the log on the clipboard, oldest hit first. Turning the plugin off hides it and keeps the hits. Clear on logout wipes the log at the login screen. A world hop keeps it.
+Blocks are recorded by default and do not count toward damage or DPS. Multi-hit weapons log one row per hitsplat.
 
 ## Run it
 
-JDK 11 or newer.
+You need JDK 11 or newer.
 
 ```sh
 ./gradlew run
 ```
 
-That starts a dev client with the plugin loaded. Jagex account login is covered at <https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>.
+That starts a development RuneLite client with Combat Log loaded and developer mode on. Log in with a Jagex account using the steps at <https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>.
 
-To drop the jar into another developer-mode client:
+Open the blue hitsplat icon in the sidebar. Attack an NPC. Hits you land should appear in the panel and in the overlay at the top left.
+
+## What to check in game
+
+- A normal hit on an NPC shows the NPC's name, the damage, and the time.
+- A max hit is marked with `*`.
+- A block shows as "Block" and does not increase the damage total.
+- Session DPS appears after the fight has lasted at least one game tick.
+- Recent DPS covers the last 10 seconds (change the window in the plugin settings).
+- Poison and venom ticks do not add rows.
+- Another player's hit on your target does not add a row.
+- Clear asks you to confirm. Copy puts the log on the clipboard, oldest hit first.
+- Turning the plugin off hides it and keeps the hits. "Clear on logout" wipes the log when you return to the login screen; a world hop keeps it.
+
+## Sideload the jar
+
+`./gradlew run` is the reliable way to use the plugin. To load it into another developer-mode client:
 
 ```sh
 ./gradlew jar
@@ -50,20 +46,19 @@ mkdir -p ~/.runelite/sideloaded-plugins
 cp build/libs/combat-log-1.0.0.jar ~/.runelite/sideloaded-plugins/
 ```
 
-Use `combat-log-1.0.0.jar`, not the larger `-all` jar, and start that client with `--developer-mode`.
+Start that client with `--developer-mode`. Copy the jar from `build/libs/combat-log-1.0.0.jar`, not the larger `combat-log-1.0.0-all.jar`.
 
 ## Settings
 
-| Setting | Default | |
+| Setting | Default | What it does |
 | --- | --- | --- |
-| Record blocks | On | Keep 0-damage blocks. Totals ignore them either way. |
-| Record player hits | On | Also log hits you land on other players. |
-| Log length | 300 | Drop the oldest rows after this. |
-| Clear on logout | Off | World hops keep the log. |
-| Damage view | Outgoing | Outgoing, incoming, or both. The sidebar icons change this too. |
-| Show overlay | On | Recent hits on the game view. |
-| Overlay rows | 6 | How many hits the overlay lists. |
-| Overlay width | 140px | From 120 to 400. |
+| Record blocks | On | Keep 0-damage blocks in the log |
+| Record player hits | On | Also log hits you land on other players |
+| Log length | 300 | Drop the oldest rows after this |
+| Recent DPS window | 10 seconds | Window used for recent DPS |
+| Clear on logout | Off | Clear when you reach the login screen |
+| Show overlay | On | Draw the on-screen log |
+| Overlay rows | 6 | How many hits the overlay lists |
 
 ## Tests
 
@@ -71,4 +66,4 @@ Use `combat-log-1.0.0.jar`, not the larger `-all` jar, and start that client wit
 ./gradlew test
 ```
 
-They check which hitsplats are kept, fight grouping, accuracy, and the copied log. They do not start the client.
+The tests cover which hitsplats are kept, DPS over the session and the recent window, per-target totals, and the copied log. They do not start the game.
