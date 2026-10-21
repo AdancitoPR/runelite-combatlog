@@ -446,6 +446,17 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void groupLineAveragesFinishedFightsOfOneMonster()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(0, "Goblin", 1, 301, 10));
+		log.closeLife(1, 10);
+		log.add(npcHit(20, "Goblin", 2, 301, 8));
+		log.closeLife(2, 40);
+		assertEquals("2 kills · avg 9.0s · best 6.0s", FightSummary.groupLine(log.summarize(40_000L, 10).getFights()));
+	}
+
+	@Test
 	public void overkillIsRemovedFromFightDps()
 	{
 		CombatLog log = new CombatLog(10);
