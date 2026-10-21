@@ -1,14 +1,12 @@
-# Combat Log
+# Detailed Combat Log
 
-A RuneLite plugin that records the hits you land on enemies.
+Plugin adds a Sidebar panel with a log of the damage done in the fight, divided by NPC and adjustable by incoming, outgoing or combination of both. Plugin specifies types of damage, weapon icons, offensive prayers used, type of incoming damage and summarizes basic fight data. Includes an optional overlay with a summary of the last hits. 
 
-Each of your hitsplats becomes a row: who you hit, for how much, and when. The sidebar keeps the full fight, and a small overlay shows session DPS plus the latest hits.
+Plugin icon identified by the Arkan blade.
 
-The game client colors **your** damage blue (including max hits and the cyan, yellow, orange, white, and poise variants). This plugin records those. It does not record:
+## Examples
 
-- damage other players deal
-- damage you take
-- poison, venom, disease, burn, bleed, or corruption, because those splats are not marked as yours
+A few Cerberus kills, collapsed. The header is the session total. Each fight has its time, accuracy, and any ticks lost. Best time for that monster is repeated under the fight.
 
 Blocks are recorded by default and do not count toward damage or DPS. Multi-hit weapons log one row per hitsplat.
 <img width="272" height="385" alt="image" src="https://github.com/user-attachments/assets/09c4b7cd-67d1-424f-b92d-5f07ae94ecec" />
@@ -18,58 +16,40 @@ Blocks are recorded by default and do not count toward damage or DPS. Multi-hit 
 
 
 
-## Run it
 
-You need JDK 11 or newer.
+![Cerberus fight with weapon, prayer, and thrall icons](screenshots/cerberus-hits.png)
 
-```sh
-./gradlew run
-```
 
-That starts a development RuneLite client with Combat Log loaded and developer mode on. Log in with a Jagex account using the steps at <https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts>.
+![Undead cow fight with dealt and taken rows](screenshots/undead-cow.png)
 
-Open the blue hitsplat icon in the sidebar. Attack an NPC. Hits you land should appear in the panel and in the overlay at the top left.
+## What it keeps
 
-## What to check in game
+Your hitsplats, max hits. Max hits are marked `(Max hit)` next to the number.
+Thrall damage (indicated in white text)
 
-- A normal hit on an NPC shows the NPC's name, the damage, and the time.
-- A max hit is marked with `*`.
-- A block shows as "Block" and does not increase the damage total.
-- Session DPS appears after the fight has lasted at least one game tick.
-- Recent DPS covers the last 10 seconds (change the window in the plugin settings).
-- Poison and venom ticks do not add rows.
-- Another player's hit on your target does not add a row.
-- Clear asks you to confirm. Copy puts the log on the clipboard, oldest hit first.
-- Turning the plugin off hides it and keeps the hits. "Clear on logout" wipes the log when you return to the login screen; a world hop keeps it.
+Damage you take is logged too, including poison, venom, burn, and bleed. 
+Other players' hits on your target are not.
 
-## Sideload the jar
+Blocks are kept by default and do not add to the damage total. A magic splash is logged as a 0 when the attack was magic. Accuracy is your weapon hits divided by weapon hits plus blocks and splashes. Thralls and other effects stay out of that percentage.
 
-`./gradlew run` is the reliable way to use the plugin. To load it into another developer-mode client:
+Multi-hit weapons and specs are one row per swing, with the splats added together. 
+A spec is labeled Spec.
 
-```sh
-./gradlew jar
-mkdir -p ~/.runelite/sideloaded-plugins
-cp build/libs/combat-log-1.0.0.jar ~/.runelite/sideloaded-plugins/
-```
+The three icons under the totals switch the list between outgoing damage, incoming damage, and both. The overlay summarizes the same view. 
 
-Start that client with `--developer-mode`. Copy the jar from `build/libs/combat-log-1.0.0.jar`, not the larger `combat-log-1.0.0-all.jar`.
+Log deleted on logout. A world hop keeps it.
 
 ## Settings
 
-| Setting | Default | What it does |
+| Setting | Default | |
 | --- | --- | --- |
-| Record blocks | On | Keep 0-damage blocks in the log |
-| Record player hits | On | Also log hits you land on other players |
-| Log length | 300 | Drop the oldest rows after this |
-| Recent DPS window | 10 seconds | Window used for recent DPS |
-| Clear on logout | Off | Clear when you reach the login screen |
-| Show overlay | On | Draw the on-screen log |
-| Overlay rows | 6 | How many hits the overlay lists |
+| Record blocks | On | Keep 0-damage blocks. Totals ignore them either way. |
+| Record player hits | On | Also log hits you land on other players. |
+| Log length | 300 | Drop the oldest rows after this. |
+| Clear on logout | Off | World hops keep the log. |
+| Damage view | Outgoing | Outgoing, incoming, or both. The sidebar icons change this too. |
+| Show overlay | On | Recent hits on the game view. |
+| Overlay rows | 6 | How many hits the overlay lists. |
+| Overlay width | 140px | From 120 to 400. |
 
-## Tests
 
-```sh
-./gradlew test
-```
-
-The tests cover which hitsplats are kept, DPS over the session and the recent window, per-target totals, and the copied log. They do not start the game.
