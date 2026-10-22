@@ -933,6 +933,33 @@ public class CombatLogTest
 		assertTrue(tracker.hasRecentAttack(4, 21));
 	}
 
+	@Test
+	public void monsterIconsAreNotRequestedWhenDisabled() throws Exception
+	{
+		java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+		okhttp3.OkHttpClient http = new okhttp3.OkHttpClient.Builder()
+			.addInterceptor(chain ->
+			{
+				requests.incrementAndGet();
+				throw new java.io.IOException("offline");
+			})
+			.build();
+		MonsterIcons icons = new MonsterIcons(http);
+		icons.setEnabled(false);
+		assertNull(icons.get(301));
+		assertNull(icons.get(301));
+		Thread.sleep(300);
+		assertEquals(0, requests.get());
+
+		icons.setEnabled(true);
+		assertNull(icons.get(301));
+		for (int i = 0; i < 40 && requests.get() == 0; i++)
+		{
+			Thread.sleep(50);
+		}
+		assertEquals(1, requests.get());
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

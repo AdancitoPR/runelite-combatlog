@@ -99,6 +99,9 @@ public class CombatLogPlugin extends Plugin
 	@Inject
 	private NPCManager npcManager;
 
+	@Inject
+	private MonsterIcons monsterIcons;
+
 	private NavigationButton navButton;
 	private volatile boolean running;
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
@@ -132,6 +135,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		running = true;
 		combatLog.setMaxEntries(config.maxEntries());
+		monsterIcons.setEnabled(config.monsterIcons());
 		loadSidebarIcon();
 		if (config.showOverlay())
 		{
@@ -528,6 +532,11 @@ public class CombatLogPlugin extends Plugin
 		if ("maxEntries".equals(event.getKey()))
 		{
 			combatLog.setMaxEntries(config.maxEntries());
+			queueRefresh();
+		}
+		else if ("monsterIcons".equals(event.getKey()))
+		{
+			monsterIcons.setEnabled(config.monsterIcons());
 			queueRefresh();
 		}
 		else if ("showOverlay".equals(event.getKey()))

@@ -88,6 +88,18 @@ public interface CombatLogConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "monsterIcons",
+		name = "Download monster icons",
+		description = "Loads NPC pictures from chisel.weirdgloop.org (OSRS Wiki). Sends the NPC id to that site.",
+		position = 7,
+		section = logSection
+	)
+	default boolean monsterIcons()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show overlay",
 		description = "Show recent hits on the game view.",
