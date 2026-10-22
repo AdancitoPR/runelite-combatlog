@@ -817,6 +817,51 @@ public class CombatLogTest
 		assertNull(log.currentNpc(7, 6));
 	}
 
+	@Test
+	public void fallbackDpsExcludesOverkill()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(0L, "Goblin", TargetKind.NPC, 301, 4, null, 42, HitKind.HIT, null, 0, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 6, null, null, 0));
+		CombatSnapshot snapshot = log.summarize(10_000L, 10);
+		assertEquals(42, snapshot.getTotalDamage());
+		assertEquals(3.6, snapshot.getSessionDps(), 0.0001);
+	}
+
+	@Test
+	public void closeAllQuietEndsOpenNpcFightsWithoutKills()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.closeLife(4, 2);
+		log.add(npcHit(10, "Goblin", 5, 301, 10));
+		log.add(npcHit(12, "Bear", 6, 105, 7));
+		log.add(hit(13_000L, "Zezima", TargetKind.PLAYER, 5, HitKind.HIT));
+		log.closeAllQuiet(20);
+
+		assertNull(log.currentNpc(5, 20));
+		assertNull(log.currentNpc(6, 20));
+		List<Fight> fights = log.summarize(20_000L, 10).getFights();
+		assertEquals(4, fights.size());
+		int killed = 0;
+		for (Fight fight : fights)
+		{
+			if (fight.getKind() == TargetKind.NPC)
+			{
+				assertTrue(fight.isClosed());
+			}
+			else
+			{
+				assertFalse(fight.isClosed());
+			}
+			killed += fight.isKilled() ? 1 : 0;
+		}
+		assertEquals(1, killed);
+		assertEquals("Best Time 0.6s · 1 kill", FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+
+		log.add(npcHit(25, "Goblin", 5, 301, 4));
+		assertEquals(5, log.summarize(25_000L, 10).getFights().size());
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

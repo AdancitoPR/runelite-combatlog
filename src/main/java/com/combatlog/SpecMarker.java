@@ -53,6 +53,13 @@ public final class SpecMarker
 		}
 	}
 
+	public void reset()
+	{
+		npcIndex = null;
+		remaining = 0;
+		armTick = -1;
+	}
+
 	public int serial()
 	{
 		return remaining > 0 ? serial : 0;

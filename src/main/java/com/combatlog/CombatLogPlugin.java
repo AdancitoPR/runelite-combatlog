@@ -144,6 +144,7 @@ public class CombatLogPlugin extends Plugin
 	protected void shutDown()
 	{
 		running = false;
+		resetState();
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -151,6 +152,36 @@ public class CombatLogPlugin extends Plugin
 		}
 		overlayManager.remove(overlay);
 		log.debug("{} stopped", NAME);
+	}
+
+	/**
+	 * Forgets everything tied to the current session of play. The log itself
+	 * is left alone.
+	 */
+	private void resetState()
+	{
+		pending.clear();
+		lastHealth.clear();
+		quietDespawns.clear();
+		incomingByTick.clear();
+		incomingStyles.clear();
+		specMarker.reset();
+		lastSpecPercent = -1;
+		lastVengeance = -1;
+		vengeanceClearedTick = -1;
+		thrallMax = 0;
+		thrallNpcId = null;
+		playerAttackTick = -1;
+		playerAttackSplats = 1;
+		playerAttackIndex = null;
+		swingPrayerTick = -1;
+		swingPrayerIndex = null;
+		swingPrayerIcon = null;
+		lastHitTick = -100;
+		lastSeenWeapon = null;
+		opponentIndex = null;
+		opponentName = null;
+		opponentNpcId = null;
 	}
 
 	private void loadSidebarIcon()
@@ -471,11 +502,18 @@ public class CombatLogPlugin extends Plugin
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
-		if (event.getGameState() == GameState.LOGIN_SCREEN && config.clearOnLogout())
+		GameState state = event.getGameState();
+		if (state != GameState.LOGIN_SCREEN && state != GameState.HOPPING)
+		{
+			return;
+		}
+		resetState();
+		combatLog.closeAllQuiet(client.getTickCount());
+		if (state == GameState.LOGIN_SCREEN && config.clearOnLogout())
 		{
 			combatLog.clear();
-			queueRefresh();
 		}
+		queueRefresh();
 	}
 
 	@Subscribe

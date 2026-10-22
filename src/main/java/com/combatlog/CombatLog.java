@@ -78,6 +78,14 @@ public class CombatLog
 		}
 	}
 
+	public void closeAllQuiet(int tick)
+	{
+		synchronized (lock)
+		{
+			fights.closeAllQuiet(tick);
+		}
+	}
+
 	public void noteForm(@Nullable Integer npcIndex, int npcId)
 	{
 		synchronized (lock)
@@ -299,7 +307,7 @@ public class CombatLog
 			long elapsed = nowMillis - firstDamageTime;
 			if (elapsed >= MIN_ELAPSED_MS)
 			{
-				sessionDps = weaponDamage / (elapsed / 1000.0);
+				sessionDps = dpsDamage / (elapsed / 1000.0);
 			}
 		}
 		if (damageHits > 0)

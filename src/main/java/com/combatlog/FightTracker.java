@@ -116,6 +116,30 @@ final class FightTracker
 		lastClosed.put(key, fight);
 	}
 
+	/**
+	 * Closes every open NPC life without a kill, for a logout or world hop
+	 * where the NPCs leave the scene without despawn events.
+	 */
+	void closeAllQuiet(int tick)
+	{
+		if (tick > lastTick)
+		{
+			lastTick = tick;
+		}
+		for (Iterator<Map.Entry<String, Fight>> iterator = open.entrySet().iterator(); iterator.hasNext();)
+		{
+			Map.Entry<String, Fight> entry = iterator.next();
+			Fight fight = entry.getValue();
+			if (fight.getKind() != TargetKind.NPC || fight.isClosed())
+			{
+				continue;
+			}
+			fight.closeQuiet(fight.lastTick());
+			lastClosed.put(entry.getKey(), fight);
+			iterator.remove();
+		}
+	}
+
 	void noteForm(@Nullable Integer npcIndex, int npcId)
 	{
 		if (npcIndex == null)
