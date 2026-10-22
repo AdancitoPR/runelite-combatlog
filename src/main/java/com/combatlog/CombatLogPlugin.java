@@ -810,7 +810,7 @@ public class CombatLogPlugin extends Plugin
 	@Nullable
 	private Integer offensivePrayerIcon()
 	{
-		OffensivePrayers.Icon icon = OffensivePrayers.active(client::isPrayerActive);
+		OffensivePrayers.Icon icon = OffensivePrayers.active(prayer -> client.getVarbitValue(prayer.getVarbit()) == 1);
 		return icon == null ? null : icon.getSpriteId();
 	}
 
