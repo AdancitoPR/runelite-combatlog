@@ -31,12 +31,13 @@ class CombatLogOverlay extends OverlayPanel
 	private final WeaponIcons weaponIcons;
 	private final StyleIcons styleIcons;
 	private final PrayerIcons prayerIcons;
+	private final GameHitsplats gameHitsplats;
 	private CombatSnapshot snapshot;
 	private int snapshotVersion;
 	private DamageView snapshotView;
 
 	@Inject
-	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons, PrayerIcons prayerIcons)
+	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons, PrayerIcons prayerIcons, GameHitsplats gameHitsplats)
 	{
 		super(plugin);
 		this.combatLog = combatLog;
@@ -45,6 +46,7 @@ class CombatLogOverlay extends OverlayPanel
 		this.weaponIcons = weaponIcons;
 		this.styleIcons = styleIcons;
 		this.prayerIcons = prayerIcons;
+		this.gameHitsplats = gameHitsplats;
 		setPosition(OverlayPosition.TOP_LEFT);
 		setPriority(PRIORITY_LOW);
 		setResizable(false);
@@ -208,13 +210,22 @@ class CombatLogOverlay extends OverlayPanel
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
 		boolean special = attack.isSpecial();
 		boolean splash = attack.isSplash();
-		String kind = splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt";
-		Color kindColor = splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING;
-		return new IconLine(kind, kindColor, CombatLogFormatter.rowAmount(attack), DamageColors.forHit(hit), hitIcon(hit));
+		boolean status = hit.getSource().isStatus();
+		String kind = CombatLogFormatter.rowKind(attack);
+		Color kindColor = splash ? DamageColors.SPLASH : special && !status ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING;
+		BufferedImage splat = config.damageAmount() == DamageAmount.HITSPLAT && gameHitsplats != null
+			? gameHitsplats.image(attack)
+			: null;
+		String amount = splat == null ? CombatLogFormatter.rowAmount(attack) : maxNote(attack);
+		return new IconLine(kind, kindColor, amount, DamageColors.forHit(hit), hitIcon(hit), splat);
 	}
 
 	private BufferedImage hitIcon(HitRecord hit)
 	{
+		if (hit.getSource().isStatus())
+		{
+			return null;
+		}
 		if (hit.getSource() == DamageSource.THRALL)
 		{
 			return monsterIcons.get(Thralls.iconId(hit));
@@ -224,6 +235,18 @@ class CombatLogOverlay extends OverlayPanel
 			return styleIcons.get(hit.getCombatStyle());
 		}
 		return beside(weaponIcon(hit), prayerIcon(hit));
+	}
+
+	private static String maxNote(AttackRow attack)
+	{
+		for (HitRecord hit : attack.getHits())
+		{
+			if (hit.getKind() == HitKind.MAX_HIT)
+			{
+				return "(Max hit)";
+			}
+		}
+		return "";
 	}
 
 	private BufferedImage prayerIcon(HitRecord hit)
@@ -276,17 +299,19 @@ class CombatLogOverlay extends OverlayPanel
 		private final String right;
 		private final Color rightColor;
 		private final BufferedImage icon;
+		private final BufferedImage splat;
 		private Point preferredLocation = new Point();
 		private Dimension preferredSize = new Dimension();
 		private final Rectangle bounds = new Rectangle();
 
-		private IconLine(String left, Color leftColor, String right, Color rightColor, BufferedImage icon)
+		private IconLine(String left, Color leftColor, String right, Color rightColor, BufferedImage icon, BufferedImage splat)
 		{
 			this.left = left;
 			this.leftColor = leftColor;
-			this.right = right;
+			this.right = right == null ? "" : right;
 			this.rightColor = rightColor;
 			this.icon = icon;
+			this.splat = splat;
 		}
 
 		@Override
@@ -296,24 +321,36 @@ class CombatLogOverlay extends OverlayPanel
 			int textHeight = metrics.getHeight();
 			int iconWidth = icon == null ? 0 : icon.getWidth();
 			int iconHeight = icon == null ? 0 : icon.getHeight();
+			int splatWidth = splat == null ? 0 : splat.getWidth();
+			int splatHeight = splat == null ? 0 : splat.getHeight();
 			int leftWidth = metrics.stringWidth(left);
-			int rightWidth = metrics.stringWidth(right);
-			int gap = icon == null ? 0 : ICON_GAP;
-			int rowHeight = Math.max(textHeight, iconHeight);
+			int rightWidth = this.right.isEmpty() ? 0 : metrics.stringWidth(this.right);
+			int iconGap = icon == null ? 0 : ICON_GAP;
+			int splatGap = splat != null && rightWidth > 0 ? ICON_GAP : 0;
+			int rowHeight = Math.max(textHeight, Math.max(iconHeight, splatHeight));
 			int width = preferredSize.width > 0
 				? preferredSize.width
-				: leftWidth + 6 + iconWidth + gap + rightWidth;
+				: leftWidth + 6 + iconWidth + iconGap + splatWidth + splatGap + rightWidth;
 
 			int x = preferredLocation.x;
 			int baseline = preferredLocation.y + (rowHeight - textHeight) / 2 + metrics.getAscent();
 			graphics.setColor(leftColor);
 			graphics.drawString(left, x, baseline);
-			int rightX = x + width - rightWidth;
-			graphics.setColor(rightColor);
-			graphics.drawString(right, rightX, baseline);
+			int block = splatWidth + splatGap + rightWidth;
+			int blockX = x + width - block;
+			if (splat != null)
+			{
+				int splatY = preferredLocation.y + Math.max(0, (rowHeight - splatHeight) / 2);
+				graphics.drawImage(splat, blockX, splatY, null);
+			}
+			if (rightWidth > 0)
+			{
+				graphics.setColor(rightColor);
+				graphics.drawString(this.right, blockX + splatWidth + splatGap, baseline);
+			}
 			if (icon != null)
 			{
-				int iconX = Math.max(x + leftWidth + 4, rightX - gap - iconWidth);
+				int iconX = Math.max(x + leftWidth + 4, blockX - iconGap - iconWidth);
 				int iconY = preferredLocation.y + Math.max(0, (rowHeight - iconHeight) / 2);
 				graphics.drawImage(icon, iconX, iconY, null);
 			}
