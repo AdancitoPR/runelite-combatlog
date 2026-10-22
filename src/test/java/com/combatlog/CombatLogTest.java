@@ -496,6 +496,8 @@ public class CombatLogTest
 		assertEquals("42 (6 overkill)", CombatLogFormatter.amountLabel(fight.getHits().get(0)));
 		assertEquals(6, Overkill.amount(42, 30, 30, 36, true));
 		assertEquals(0, Overkill.amount(42, 30, 30, -1, true));
+		assertEquals(0, Overkill.amount(42, 30, 30, (Integer) null, true));
+		assertEquals(6, Overkill.amount(42, 30, 30, Integer.valueOf(36), true));
 	}
 
 	@Test

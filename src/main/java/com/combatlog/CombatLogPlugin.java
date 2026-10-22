@@ -686,7 +686,8 @@ public class CombatLogPlugin extends Plugin
 			}
 			return 0;
 		}
-		return Overkill.amount(amount, previous[0], previous[1], npcManager.getHealth(npcId), true);
+		Integer maxHp = npcManager.getHealth(npcId);
+		return Overkill.amount(amount, previous[0], previous[1], maxHp, true);
 	}
 
 	private int attackSpeed(Integer weaponId)
