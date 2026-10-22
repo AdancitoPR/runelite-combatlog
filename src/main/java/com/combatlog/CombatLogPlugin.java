@@ -1016,6 +1016,10 @@ public class CombatLogPlugin extends Plugin
 		}
 		int picked = Thralls.pick(amounts, blocks, slots, thrallMax, swung && thrallMax > 0);
 		int thrallAt = picked < 0 ? -1 : eligible.get(picked);
+		if (vengeanceAt < 0)
+		{
+			vengeanceAt = unmatchedVengeance(hits, thrallAt);
+		}
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
@@ -1049,9 +1053,8 @@ public class CombatLogPlugin extends Plugin
 	}
 
 	/**
-	 * The one hit this tick that is vengeance. A hit that matches 75% of damage
-	 * taken wins. Without a match, the first hit on a vengeance tick that has no
-	 * recent attack behind it is used.
+	 * The hit this tick that matches 75% of damage taken on a vengeance tick.
+	 * It is picked before the thrall because the match is the stronger evidence.
 	 */
 	private int pickVengeance(List<PendingHit> hits, int tick)
 	{
@@ -1070,17 +1073,19 @@ public class CombatLogPlugin extends Plugin
 			return -1;
 		}
 		List<Integer> incoming = incomingByTick.get(tick);
-		if (incoming != null)
-		{
-			int picked = Vengeance.pick(amounts, candidates, incoming);
-			if (picked >= 0)
-			{
-				return picked;
-			}
-		}
+		return incoming == null ? -1 : Vengeance.pick(amounts, candidates, incoming);
+	}
+
+	/**
+	 * Without a match, the first hit on a vengeance tick with no recent attack
+	 * behind it, after the thrall has taken its hit.
+	 */
+	private static int unmatchedVengeance(List<PendingHit> hits, int thrallAt)
+	{
 		for (int i = 0; i < hits.size(); i++)
 		{
-			if (candidates[i] && !hits.get(i).recentAttack)
+			PendingHit hit = hits.get(i);
+			if (i != thrallAt && !hit.burn && hit.vengeanceTick && !hit.recentAttack)
 			{
 				return i;
 			}
