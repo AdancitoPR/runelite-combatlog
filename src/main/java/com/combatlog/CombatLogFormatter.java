@@ -110,6 +110,45 @@ public final class CombatLogFormatter
 		return text;
 	}
 
+	public static String rowKind(AttackRow row)
+	{
+		HitRecord hit = row.first();
+		if (row.isSplash())
+		{
+			return "Splash";
+		}
+		String status = statusLabel(hit.getSource());
+		if (status != null)
+		{
+			return status;
+		}
+		if (row.isSpecial())
+		{
+			return "Spec";
+		}
+		return hit.getDirection() == DamageDirection.INCOMING ? "Taken" : "Dealt";
+	}
+
+	@Nullable
+	public static String statusLabel(DamageSource source)
+	{
+		if (source == null)
+		{
+			return null;
+		}
+		switch (source)
+		{
+			case BURN:
+				return "Burn";
+			case POISON:
+				return "Poison";
+			case VENOM:
+				return "Venom";
+			default:
+				return null;
+		}
+	}
+
 	public static String effectName(HitRecord hit)
 	{
 		switch (hit.getSource())

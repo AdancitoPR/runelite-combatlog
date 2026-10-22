@@ -84,22 +84,40 @@ public final class HitCapture
 	}
 
 	@Nullable
-	public static HitRecord captureBurn(
+	public static DamageSource statusSource(int hitsplatType)
+	{
+		if (hitsplatType == net.runelite.api.HitsplatID.BURN)
+		{
+			return DamageSource.BURN;
+		}
+		if (hitsplatType == net.runelite.api.HitsplatID.POISON)
+		{
+			return DamageSource.POISON;
+		}
+		if (hitsplatType == net.runelite.api.HitsplatID.VENOM)
+		{
+			return DamageSource.VENOM;
+		}
+		return null;
+	}
+
+	@Nullable
+	public static HitRecord captureStatus(
 		int hitsplatType,
 		int amount,
 		@Nullable String actorName,
 		@Nullable TargetKind targetKind,
 		@Nullable Integer npcId,
 		@Nullable Integer npcIndex,
-		@Nullable Integer weaponItemId,
 		long nowMillis,
 		int tick)
 	{
-		if (hitsplatType != net.runelite.api.HitsplatID.BURN || targetKind == null || amount <= 0)
+		DamageSource source = statusSource(hitsplatType);
+		if (source == null || targetKind == null || amount <= 0)
 		{
 			return null;
 		}
 		String name = actorName == null || actorName.isEmpty() ? "Unknown" : actorName;
-		return new HitRecord(nowMillis, name, targetKind, npcId, npcIndex, weaponItemId, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.BURN, false, 0, null, null, 0);
+		return new HitRecord(nowMillis, name, targetKind, npcId, npcIndex, null, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, source, false, 0, null, null, 0);
 	}
 }

@@ -88,10 +88,22 @@ public interface CombatLogConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "damageAmount",
+		name = "Damage display",
+		description = "Hitsplat uses the game hitsplat for each hit you deal or take. Number shows the amount as text.",
+		position = 7,
+		section = logSection
+	)
+	default DamageAmount damageAmount()
+	{
+		return DamageAmount.NUMBER;
+	}
+
+	@ConfigItem(
 		keyName = "monsterIcons",
 		name = "Download monster icons",
 		description = "Loads NPC pictures from chisel.weirdgloop.org (OSRS Wiki). Sends the NPC id to that site.",
-		position = 7,
+		position = 8,
 		section = logSection
 	)
 	default boolean monsterIcons()

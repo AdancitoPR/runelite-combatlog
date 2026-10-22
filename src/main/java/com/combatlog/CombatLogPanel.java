@@ -65,6 +65,7 @@ class CombatLogPanel extends PluginPanel
 	private final TabIcons tabIcons;
 	private final StyleIcons styleIcons;
 	private final PrayerIcons prayerIcons;
+	private final GameHitsplats gameHitsplats;
 	private ConfigManager configManager;
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
@@ -88,10 +89,10 @@ class CombatLogPanel extends PluginPanel
 
 	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons)
 	{
-		this(combatLog, config, monsterIcons, weaponIcons, null, null, null);
+		this(combatLog, config, monsterIcons, weaponIcons, null, null, null, null);
 	}
 
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons, GameHitsplats gameHitsplats)
 	{
 		super(true);
 		this.combatLog = combatLog;
@@ -101,6 +102,7 @@ class CombatLogPanel extends PluginPanel
 		this.tabIcons = tabIcons;
 		this.styleIcons = styleIcons;
 		this.prayerIcons = prayerIcons;
+		this.gameHitsplats = gameHitsplats;
 		monsterIcons.onLoaded(this::refresh);
 		weaponIcons.onLoaded(this::refresh);
 		if (tabIcons != null)
@@ -114,6 +116,10 @@ class CombatLogPanel extends PluginPanel
 		if (prayerIcons != null)
 		{
 			prayerIcons.onLoaded(this::refresh);
+		}
+		if (gameHitsplats != null)
+		{
+			gameHitsplats.onLoaded(this::refresh);
 		}
 
 		setLayout(new BorderLayout());
@@ -166,9 +172,9 @@ class CombatLogPanel extends PluginPanel
 	}
 
 	@Inject
-	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons, ConfigManager configManager)
+	CombatLogPanel(CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, TabIcons tabIcons, StyleIcons styleIcons, PrayerIcons prayerIcons, GameHitsplats gameHitsplats, ConfigManager configManager)
 	{
-		this(combatLog, config, monsterIcons, weaponIcons, tabIcons, styleIcons, prayerIcons);
+		this(combatLog, config, monsterIcons, weaponIcons, tabIcons, styleIcons, prayerIcons, gameHitsplats);
 		this.configManager = configManager;
 	}
 
@@ -617,12 +623,11 @@ class CombatLogPanel extends PluginPanel
 			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
 		}
 		block.add(fightHeader(fight, open));
-		ZoneId zone = ZoneId.systemDefault();
 		if (open)
 		{
 			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 			{
-				block.add(attackRow(attack, index, zone));
+				block.add(attackRow(attack, index));
 				index++;
 			}
 		}
@@ -673,18 +678,24 @@ class CombatLogPanel extends PluginPanel
 		named.add(nameAndIcon, BorderLayout.WEST);
 		named.add(name, BorderLayout.CENTER);
 
-		int total = 0;
+		Integer maxHp = null;
 		for (Fight fight : group)
 		{
-			total += snapshot.getView() == DamageView.INCOMING ? fight.damageTaken() : fight.damageDone();
+			if (fight.getMaxHp() != null)
+			{
+				maxHp = fight.getMaxHp();
+				break;
+			}
 		}
-		JLabel amount = new JLabel(CombatLogFormatter.formatDamage(total), SwingConstants.RIGHT);
-		amount.setFont(uiFont());
-		amount.setForeground(snapshot.getView() == DamageView.INCOMING ? DamageColors.INCOMING : DamageColors.OUTGOING);
-		holdWidth(amount);
-
 		row.add(named, BorderLayout.CENTER);
-		row.add(amount, BorderLayout.EAST);
+		if (maxHp != null)
+		{
+			JLabel amount = new JLabel("HP: " + CombatLogFormatter.formatDamage(maxHp), SwingConstants.RIGHT);
+			amount.setFont(uiFont());
+			amount.setForeground(Color.WHITE);
+			holdWidth(amount);
+			row.add(amount, BorderLayout.EAST);
+		}
 		String key = groupKey(first);
 		bindClick(row, () ->
 		{
@@ -851,7 +862,7 @@ class CombatLogPanel extends PluginPanel
 		return snapshot.getBlocks() == 1 ? "1 block" : snapshot.getBlocks() + " blocks";
 	}
 
-	private JPanel attackRow(AttackRow attack, int index, ZoneId zone)
+	private JPanel attackRow(AttackRow attack, int index)
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
@@ -862,27 +873,23 @@ class CombatLogPanel extends PluginPanel
 		row.setAlignmentX(LEFT_ALIGNMENT);
 
 		boolean splash = attack.isSplash();
-		JLabel kind = new JLabel(splash ? "Splash" : special ? "Spec" : incoming ? "Taken" : "Dealt");
+		boolean status = hit.getSource().isStatus();
+		JLabel kind = new JLabel(CombatLogFormatter.rowKind(attack));
 		kind.setFont(uiFont());
-		kind.setForeground(splash ? DamageColors.SPLASH : special ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
+		kind.setForeground(splash ? DamageColors.SPLASH : special && !status ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING);
 
 		boolean thrall = hit.getSource() == DamageSource.THRALL;
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!thrall && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null))
+		if (!thrall && !status && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
 		{
 			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
-		else if (incoming && hit.getCombatStyle() != null)
+		else if (incoming && !status && hit.getCombatStyle() != null)
 		{
 			lead.add(styleSlot(hit), BorderLayout.EAST);
 		}
-
-		JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
-		amount.setFont(uiFont());
-		amount.setForeground(DamageColors.forHit(hit));
-		holdWidth(amount);
 
 		JPanel figures = new JPanel(new BorderLayout(4, 0));
 		figures.setOpaque(false);
@@ -890,13 +897,60 @@ class CombatLogPanel extends PluginPanel
 		{
 			figures.add(thrallSlot(hit), BorderLayout.WEST);
 		}
-		figures.add(amount, BorderLayout.CENTER);
+		figures.add(amountFigure(attack, hit), BorderLayout.CENTER);
 
 		row.add(lead, BorderLayout.WEST);
 		row.add(figures, BorderLayout.EAST);
-		row.setToolTipText(CombatLogFormatter.formatTime(hit.getTimeMillis(), zone) + "  " + hit.describe());
 		fitRow(row);
 		return row;
+	}
+
+	private BufferedImage hitSplat(AttackRow attack)
+	{
+		if (config.damageAmount() != DamageAmount.HITSPLAT || gameHitsplats == null)
+		{
+			return null;
+		}
+		return gameHitsplats.image(attack);
+	}
+
+	private JComponent amountFigure(AttackRow attack, HitRecord hit)
+	{
+		BufferedImage splat = hitSplat(attack);
+		if (splat == null)
+		{
+			JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
+			amount.setFont(uiFont());
+			amount.setForeground(DamageColors.forHit(hit));
+			holdWidth(amount);
+			return amount;
+		}
+		JLabel icon = new JLabel(new ImageIcon(splat), SwingConstants.RIGHT);
+		icon.setToolTipText(CombatLogFormatter.rowAmount(attack));
+		if (!maxHit(attack))
+		{
+			return icon;
+		}
+		JLabel note = new JLabel("(Max hit)");
+		note.setFont(uiFont());
+		note.setForeground(DamageColors.forHit(hit));
+		JPanel both = new JPanel(new BorderLayout(4, 0));
+		both.setOpaque(false);
+		both.add(icon, BorderLayout.WEST);
+		both.add(note, BorderLayout.EAST);
+		return both;
+	}
+
+	private static boolean maxHit(AttackRow attack)
+	{
+		for (HitRecord recorded : attack.getHits())
+		{
+			if (recorded.getKind() == HitKind.MAX_HIT)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static JPanel groupSeparator()
@@ -1048,6 +1102,10 @@ class CombatLogPanel extends PluginPanel
 		{
 			icons.add(weaponSlot(hit));
 		}
+		else if (hit.getAttackStyleIcon() != null)
+		{
+			icons.add(attackStyleSlot(hit));
+		}
 		if (hit.getPrayerIcon() != null)
 		{
 			if (icons.getComponentCount() > 0)
@@ -1078,6 +1136,33 @@ class CombatLogPanel extends PluginPanel
 			}
 		}
 		String name = hit.getPrayerIcon() == null ? null : OffensivePrayers.name(hit.getPrayerIcon());
+		if (name != null)
+		{
+			icon.setToolTipText(name);
+		}
+		return icon;
+	}
+
+	private JLabel attackStyleSlot(HitRecord hit)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(WeaponIcons.SIZE, WeaponIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		Integer spriteId = hit.getAttackStyleIcon();
+		if (prayerIcons != null && spriteId != null)
+		{
+			BufferedImage image = prayerIcons.get(spriteId);
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+		}
+		String name = UnarmedStyle.name(spriteId);
 		if (name != null)
 		{
 			icon.setToolTipText(name);

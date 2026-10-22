@@ -153,6 +153,19 @@ final class FightTracker
 		}
 	}
 
+	void noteMaxHp(@Nullable Integer npcIndex, int maxHp)
+	{
+		if (npcIndex == null || maxHp <= 0)
+		{
+			return;
+		}
+		Fight fight = open.get(npcKey(npcIndex));
+		if (fight != null)
+		{
+			fight.setMaxHp(maxHp);
+		}
+	}
+
 	void noteAttack(AttackSwing swing)
 	{
 		if (swing.getAttackId() == 0)

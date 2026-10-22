@@ -13,5 +13,18 @@ public enum DamageSource
 	CORRUPTION,
 	DOOM,
 	PRAYER,
-	SANITY
+	SANITY;
+
+	public boolean isStatus()
+	{
+		switch (this)
+		{
+			case BURN:
+			case POISON:
+			case VENOM:
+				return true;
+			default:
+				return false;
+		}
+	}
 }

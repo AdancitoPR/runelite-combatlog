@@ -48,6 +48,13 @@ public class CombatLogTest
 		assertEquals(DamageSource.POISON, poison.getSource());
 		assertEquals(DamageDirection.INCOMING, poison.getDirection());
 		assertEquals("4 poison", CombatLogFormatter.amountLabel(poison));
+		assertEquals("Poison", CombatLogFormatter.rowKind(AttackRow.group(Collections.singletonList(poison)).get(0)));
+		HitRecord dealtPoison = HitCapture.captureStatus(HitsplatID.POISON, 4, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 3);
+		assertEquals(DamageSource.POISON, dealtPoison.getSource());
+		assertNull(dealtPoison.getWeaponItemId());
+		HitRecord dealtVenom = HitCapture.captureStatus(HitsplatID.VENOM, 6, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 4);
+		assertEquals("Venom", CombatLogFormatter.rowKind(AttackRow.group(Collections.singletonList(dealtVenom)).get(0)));
+		assertNull(HitCapture.captureStatus(HitsplatID.DAMAGE_ME, 4, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 3));
 		assertNull(HitCapture.capture(HitsplatID.POISON, 4, "Barbarian", TargetKind.NPC, 326, 4, null, false, true, true, 1_000L));
 		HitRecord tinted = HitCapture.capture(HitsplatID.DAMAGE_ME_CYAN, 10, "Goblin", TargetKind.NPC, 301, 4, null, false, true, true, 1_000L);
 		assertEquals("10 cyan", CombatLogFormatter.amountLabel(tinted));
@@ -477,6 +484,18 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void noteMaxHpStaysOnTheClosedFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Gnome guard", 4, 301, 32));
+		log.noteMaxHp(4, 19);
+		log.closeLife(4, 8);
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		assertEquals(Integer.valueOf(19), fight.getMaxHp());
+		assertEquals(32, fight.damageDone());
+	}
+
+	@Test
 	public void groupLineAveragesFinishedFightsOfOneMonster()
 	{
 		CombatLog log = new CombatLog(10);
@@ -715,6 +734,36 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
 		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+	}
+
+	@Test
+	public void unarmedStylesUsePunchKickAndBlock()
+	{
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.icon("ACCURATE"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.icon("aggressive"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.icon("DEFENSIVE"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.icon("block"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.iconForIndex(0));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.iconForIndex(1));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForIndex(2));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForIndex(3));
+		String[] unarmed = {"ACCURATE", "AGGRESSIVE", "OTHER", "DEFENSIVE"};
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.iconForStyles(unarmed, 0));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.iconForStyles(unarmed, 1));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForStyles(unarmed, 3));
+		assertNull(UnarmedStyle.icon("CASTING"));
+		assertNull(UnarmedStyle.icon(null));
+		assertNull(UnarmedStyle.iconForIndex(4));
+		assertEquals("Punch", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_PUNCH));
+		assertEquals("Kick", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_KICK));
+		assertEquals("Block", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_BLOCK));
+
+		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withAttackStyle(SpriteID.Combaticons.UNARMED_KICK);
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.getAttackStyleIcon());
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.withMeta(2, null, null, null, false, DamageSource.WEAPON, 0, 0).getAttackStyleIcon());
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.withPrayer(SpriteID.Prayeron.PIETY).getAttackStyleIcon());
+		assertNull(hit.withAttackStyle(0).getAttackStyleIcon());
+		assertNull(hit.withAttackStyle(null).getAttackStyleIcon());
 	}
 
 	@Test
