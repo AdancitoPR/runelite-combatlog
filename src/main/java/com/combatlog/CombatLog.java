@@ -109,6 +109,15 @@ public class CombatLog
 		}
 	}
 
+	public void noteMaxHp(@Nullable Integer npcIndex, int maxHp)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.noteMaxHp(npcIndex, maxHp);
+		}
+	}
+
 	public void noteAttack(int tick, @Nullable Integer npcIndex, String name, @Nullable Integer weaponItemId, int speed)
 	{
 		synchronized (lock)

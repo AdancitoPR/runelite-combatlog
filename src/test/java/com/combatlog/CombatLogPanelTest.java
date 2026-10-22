@@ -129,6 +129,27 @@ public class CombatLogPanelTest
 	}
 
 	@Test
+	public void groupHeaderShowsMaxHpAndTheFightKeepsDamage() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(new HitRecord(1_000L, "Gnome guard", TargetKind.NPC, 26, 1, null, 32, HitKind.HIT, null));
+			log.noteMaxHp(1, 19);
+			log.closeLife(1, 8);
+			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			assertNotNull(findLabel(panel, "HP: 19"));
+			int damageLabels = countLabels(panel, "32");
+
+			click(findLabel(panel, "+"));
+			assertNotNull(findLabel(panel, "HP: 19"));
+			assertEquals(damageLabels + 1, countLabels(panel, "32"));
+		});
+	}
+
+	@Test
 	public void clearConfirmationSurvivesRefreshes() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->
@@ -257,6 +278,27 @@ public class CombatLogPanelTest
 
 			assertNotNull(findTooltip(panel, "Punch"));
 			assertNull(findTooltip(panel, "Kick"));
+		});
+	}
+
+	@Test
+	public void statusHitsNameTheEffectAndHideTheWeapon() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(50);
+			log.add(new HitRecord(1_000L, "Guard", TargetKind.NPC, null, 1, 1333, 6, HitKind.HIT, null, 3, DamageDirection.OUTGOING, DamageSource.BURN, false, 0, null, null, 1)
+				.withPrayer(SpriteID.Prayeron.PIETY));
+			log.add(new HitRecord(2_000L, "Guard", TargetKind.NPC, null, 1, 12926, 4, HitKind.HIT, null, 8, DamageDirection.OUTGOING, DamageSource.POISON, false, 0, null, null, 2));
+			log.add(new HitRecord(3_000L, "Guard", TargetKind.NPC, null, 1, 12926, 8, HitKind.HIT, null, 12, DamageDirection.OUTGOING, DamageSource.VENOM, false, 0, null, null, 3));
+			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			assertEquals(1, countLabels(panel, "Burn"));
+			assertEquals(1, countLabels(panel, "Poison"));
+			assertEquals(1, countLabels(panel, "Venom"));
+			assertEquals(0, countLabels(panel, "Dealt"));
+			assertNull(findTooltip(panel, "Piety"));
 		});
 	}
 

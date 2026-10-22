@@ -48,6 +48,13 @@ public class CombatLogTest
 		assertEquals(DamageSource.POISON, poison.getSource());
 		assertEquals(DamageDirection.INCOMING, poison.getDirection());
 		assertEquals("4 poison", CombatLogFormatter.amountLabel(poison));
+		assertEquals("Poison", CombatLogFormatter.rowKind(AttackRow.group(Collections.singletonList(poison)).get(0)));
+		HitRecord dealtPoison = HitCapture.captureStatus(HitsplatID.POISON, 4, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 3);
+		assertEquals(DamageSource.POISON, dealtPoison.getSource());
+		assertNull(dealtPoison.getWeaponItemId());
+		HitRecord dealtVenom = HitCapture.captureStatus(HitsplatID.VENOM, 6, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 4);
+		assertEquals("Venom", CombatLogFormatter.rowKind(AttackRow.group(Collections.singletonList(dealtVenom)).get(0)));
+		assertNull(HitCapture.captureStatus(HitsplatID.DAMAGE_ME, 4, "Goblin", TargetKind.NPC, 1, 2, 1_000L, 3));
 		assertNull(HitCapture.capture(HitsplatID.POISON, 4, "Barbarian", TargetKind.NPC, 326, 4, null, false, true, true, 1_000L));
 		HitRecord tinted = HitCapture.capture(HitsplatID.DAMAGE_ME_CYAN, 10, "Goblin", TargetKind.NPC, 301, 4, null, false, true, true, 1_000L);
 		assertEquals("10 cyan", CombatLogFormatter.amountLabel(tinted));
@@ -474,6 +481,18 @@ public class CombatLogTest
 		List<Fight> again = log.summarize(10_000L, 10).getFights();
 		assertEquals(1, again.size());
 		assertEquals(7, again.get(0).getHits().get(0).getAmount());
+	}
+
+	@Test
+	public void noteMaxHpStaysOnTheClosedFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Gnome guard", 4, 301, 32));
+		log.noteMaxHp(4, 19);
+		log.closeLife(4, 8);
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		assertEquals(Integer.valueOf(19), fight.getMaxHp());
+		assertEquals(32, fight.damageDone());
 	}
 
 	@Test

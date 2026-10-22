@@ -21,6 +21,7 @@ public final class Fight
 	private int endTick;
 	private boolean closed;
 	private boolean killed;
+	private Integer maxHp;
 
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
@@ -100,6 +101,20 @@ public final class Fight
 		return startTick > 0 || endTick > 0;
 	}
 
+	@Nullable
+	public Integer getMaxHp()
+	{
+		return maxHp;
+	}
+
+	void setMaxHp(int maxHp)
+	{
+		if (maxHp > 0)
+		{
+			this.maxHp = maxHp;
+		}
+	}
+
 	int lastTick()
 	{
 		int last = startTick;
@@ -141,6 +156,7 @@ public final class Fight
 		copy.endTick = endTick;
 		copy.closed = closed;
 		copy.killed = killed;
+		copy.maxHp = maxHp;
 		return copy;
 	}
 

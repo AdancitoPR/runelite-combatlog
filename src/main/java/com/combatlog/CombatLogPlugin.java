@@ -473,7 +473,7 @@ public class CombatLogPlugin extends Plugin
 		}
 
 		int type = event.getHitsplat().getHitsplatType();
-		boolean burn = type == HitsplatID.BURN;
+		DamageSource status = HitCapture.statusSource(type);
 		TargetKind targetKind = null;
 		Integer npcId = null;
 		Integer npcIndex = null;
@@ -483,9 +483,9 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
-			if (burn && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
+			if (status != null && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
 			{
-				// Burn on an NPC you are not fighting is someone else's, and must not become the opponent.
+				// Burn, poison, or venom on an NPC you are not fighting is someone else's.
 				return;
 			}
 			if (!isThrall(npc))
@@ -499,11 +499,11 @@ public class CombatLogPlugin extends Plugin
 		}
 
 		int amount = event.getHitsplat().getAmount();
-		boolean splash = !burn && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
+		boolean splash = status == null && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
 		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
-		Integer weapon = combatLog.weaponFor(npcIndex, tick, equippedWeaponId());
-		HitRecord record = burn
-			? HitCapture.captureBurn(type, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, System.currentTimeMillis(), tick)
+		Integer weapon = status == null ? combatLog.weaponFor(npcIndex, tick, equippedWeaponId()) : null;
+		HitRecord record = status != null
+			? HitCapture.captureStatus(type, amount, actor.getName(), targetKind, npcId, npcIndex, System.currentTimeMillis(), tick)
 			: HitCapture.capture(captureType, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks() || splash, config.recordPlayerHits(), System.currentTimeMillis());
 		if (record != null && splash)
 		{
@@ -517,8 +517,8 @@ public class CombatLogPlugin extends Plugin
 		boolean recentAttack = combatLog.hasRecentAttack(npcIndex, tick);
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
-		record = record.withMeta(tick, null, null, weapon, false, burn ? DamageSource.BURN : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
+		record = record.withMeta(tick, null, null, weapon, false, status != null ? status : DamageSource.WEAPON, overkill, 0);
+		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
 		lastHitTick = tick;
 	}
 
@@ -571,6 +571,10 @@ public class CombatLogPlugin extends Plugin
 		else if ("damageView".equals(event.getKey()))
 		{
 			panel.setDamageView(config.damageView());
+			queueRefresh();
+		}
+		else if ("damageAmount".equals(event.getKey()))
+		{
 			queueRefresh();
 		}
 	}
@@ -1047,7 +1051,7 @@ public class CombatLogPlugin extends Plugin
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn || i == vengeanceAt)
+			if (hit.burn || hit.record.getSource().isStatus() || i == vengeanceAt)
 			{
 				continue;
 			}
@@ -1075,18 +1079,23 @@ public class CombatLogPlugin extends Plugin
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			DamageSource source = hit.burn
-				? DamageSource.BURN
+			DamageSource recorded = hit.record.getSource();
+			DamageSource source = hit.burn || recorded.isStatus()
+				? recorded
 				: i == vengeanceAt
 					? DamageSource.VENGEANCE
 					: i == thrallAt
 						? DamageSource.THRALL
 						: DamageSource.WEAPON;
 			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
-			Integer weapon = source == DamageSource.THRALL
+			Integer weapon = source == DamageSource.THRALL || source.isStatus()
 				? null
 				: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
 			HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
+			if (source.isStatus())
+			{
+				record = record.asSource(source, null, null);
+			}
 			if (source == DamageSource.WEAPON)
 			{
 				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
@@ -1100,6 +1109,14 @@ public class CombatLogPlugin extends Plugin
 				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
 			}
 			combatLog.add(record);
+			if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
+			{
+				Integer maxHp = npcManager.getHealth(record.getNpcId());
+				if (maxHp != null)
+				{
+					combatLog.noteMaxHp(hit.npcIndex, maxHp);
+				}
+			}
 			if (hit.killed)
 			{
 				combatLog.closeLife(hit.npcIndex, hit.tick);
