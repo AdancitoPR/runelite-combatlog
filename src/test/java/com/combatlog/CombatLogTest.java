@@ -800,6 +800,23 @@ public class CombatLogTest
 		assertEquals(0, marker.serial());
 	}
 
+	@Test
+	public void fightOwnershipIsKnownForNpcsYouAttacked()
+	{
+		CombatLog log = new CombatLog(10);
+		assertNull(log.currentNpc(4, 5));
+		assertFalse(log.hasRecentAttack(4, 5));
+
+		log.noteAttack(5, 4, "Goblin", 1333, 4);
+		assertTrue(log.hasRecentAttack(4, 5));
+		assertFalse(log.hasRecentAttack(7, 5));
+		assertNull(log.currentNpc(4, 5));
+
+		log.add(npcHit(5, "Goblin", 4, 301, 10));
+		assertEquals(Integer.valueOf(4), log.currentNpc(4, 6));
+		assertNull(log.currentNpc(7, 6));
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

@@ -418,6 +418,8 @@ public class CombatLogPlugin extends Plugin
 			return;
 		}
 
+		int type = event.getHitsplat().getHitsplatType();
+		boolean burn = type == HitsplatID.BURN;
 		TargetKind targetKind = null;
 		Integer npcId = null;
 		Integer npcIndex = null;
@@ -427,6 +429,11 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (burn && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
+			{
+				// Burn on an NPC you are not fighting is someone else's, and must not become the opponent.
+				return;
+			}
 			if (!isThrall(npc))
 			{
 				rememberOpponent(npc);
@@ -438,8 +445,6 @@ public class CombatLogPlugin extends Plugin
 		}
 
 		int amount = event.getHitsplat().getAmount();
-		int type = event.getHitsplat().getHitsplatType();
-		boolean burn = type == HitsplatID.BURN;
 		boolean splash = !burn && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
 		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
 		Integer weapon = combatLog.weaponFor(npcIndex, tick, equippedWeaponId());
