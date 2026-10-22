@@ -14,7 +14,9 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
@@ -25,7 +27,9 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollBar;
 import javax.swing.plaf.ScrollBarUI;
 import javax.swing.JScrollPane;
@@ -64,6 +68,7 @@ class CombatLogPanel extends PluginPanel
 	private ConfigManager configManager;
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
+	private final Map<String, Boolean> groupsOpen = new HashMap<>();
 
 	private final JPanel totalsBox = new JPanel();
 	private final JLabel detailValue = new JLabel("\u2014");
@@ -548,45 +553,214 @@ class CombatLogPanel extends PluginPanel
 			return;
 		}
 
+		List<Fight> ongoing = new ArrayList<>();
+		List<Fight> finished = new ArrayList<>();
+		for (Fight fight : snapshot.getFights())
+		{
+			if (fight.isClosed())
+			{
+				finished.add(fight);
+			}
+			else
+			{
+				ongoing.add(fight);
+			}
+		}
+
 		hitsPanel.add(sectionLabel("Fights"));
 		hitsPanel.add(Box.createVerticalStrut(4));
 
-		ZoneId zone = ZoneId.systemDefault();
 		int index = 0;
-		int fightIndex = 0;
-		for (Fight fight : snapshot.getFights())
+		for (Fight fight : ongoing)
 		{
-			boolean open = expanded.containsKey(fight.getId()) ? expanded.get(fight.getId()) : fightIndex == 0;
-			hitsPanel.add(fightHeader(fight, open));
+			boolean open = expanded.containsKey(fight.getId()) ? expanded.get(fight.getId()) : true;
+			index = addFight(snapshot, fight, open, index, 0);
+			hitsPanel.add(groupSeparator());
+		}
+
+		Map<String, List<Fight>> groups = new LinkedHashMap<>();
+		for (Fight fight : finished)
+		{
+			String key = groupKey(fight);
+			List<Fight> group = groups.get(key);
+			if (group == null)
+			{
+				group = new ArrayList<>();
+				groups.put(key, group);
+			}
+			group.add(fight);
+		}
+		for (List<Fight> group : groups.values())
+		{
+			String key = groupKey(group.get(0));
+			boolean open = Boolean.TRUE.equals(groupsOpen.get(key));
+			hitsPanel.add(groupHeader(group, snapshot, open));
 			if (open)
 			{
-				for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
+				for (Fight fight : group)
 				{
-					hitsPanel.add(attackRow(attack, index, zone));
-					index++;
+					boolean fightOpen = Boolean.TRUE.equals(expanded.get(fight.getId()));
+					index = addFight(snapshot, fight, fightOpen, index, 12);
 				}
 			}
-			String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
-			if (footer != null)
-			{
-				JLabel footerLabel = new JLabel("<html><body style='width:209px;white-space:nowrap'>" + footer + "</body></html>");
-				footerLabel.setFont(uiFont());
-				footerLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-				footerLabel.setAlignmentX(LEFT_ALIGNMENT);
-				hitsPanel.add(footerLabel);
-			}
-			String pace = FightSummary.pace(snapshot.getFights(), fight.getName(), fight.getKind());
-			if (pace != null && snapshot.getView() != DamageView.INCOMING)
-			{
-				JLabel paceLabel = new JLabel("<html><body style='width:190px'>" + pace + "</body></html>");
-				paceLabel.setFont(uiFont());
-				paceLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-				paceLabel.setAlignmentX(LEFT_ALIGNMENT);
-				hitsPanel.add(paceLabel);
-			}
 			hitsPanel.add(groupSeparator());
-			fightIndex++;
 		}
+	}
+
+	private int addFight(CombatSnapshot snapshot, Fight fight, boolean open, int index, int leftPad)
+	{
+		JPanel block = new JPanel();
+		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
+		block.setOpaque(false);
+		block.setAlignmentX(LEFT_ALIGNMENT);
+		if (leftPad > 0)
+		{
+			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
+		}
+		block.add(fightHeader(fight, open));
+		ZoneId zone = ZoneId.systemDefault();
+		if (open)
+		{
+			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
+			{
+				block.add(attackRow(attack, index, zone));
+				index++;
+			}
+		}
+		String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
+		if (footer != null)
+		{
+			block.add(noteLabel(footer, true));
+		}
+		block.add(Box.createVerticalStrut(2));
+		installDeleteMenu(block, fight);
+		hitsPanel.add(block);
+		fitRow(block);
+		return index;
+	}
+
+	private JPanel groupHeader(List<Fight> group, CombatSnapshot snapshot, boolean open)
+	{
+		JPanel block = new JPanel();
+		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
+		block.setOpaque(false);
+		block.setAlignmentX(LEFT_ALIGNMENT);
+
+		JPanel row = new JPanel(new BorderLayout(6, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(4, 4, 4, 6));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+
+		JLabel toggle = new JLabel(open ? "-" : "+");
+		toggle.setFont(uiFont());
+		toggle.setForeground(ColorScheme.BRAND_ORANGE);
+		Dimension toggleSize = new Dimension(Math.max(14, toggle.getPreferredSize().width), toggle.getPreferredSize().height);
+		toggle.setPreferredSize(toggleSize);
+		toggle.setMinimumSize(toggleSize);
+
+		Fight first = group.get(0);
+		HitRecord sample = first.getHits().isEmpty() ? null : first.getHits().get(0);
+		JLabel icon = sample == null ? new JLabel() : monsterIcon(sample);
+		JLabel name = new JLabel(first.getName());
+		name.setFont(uiFont());
+		name.setForeground(first.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
+
+		JPanel nameAndIcon = new JPanel(new BorderLayout(4, 0));
+		nameAndIcon.setOpaque(false);
+		nameAndIcon.add(toggle, BorderLayout.WEST);
+		nameAndIcon.add(icon, BorderLayout.CENTER);
+		JPanel named = new JPanel(new BorderLayout(4, 0));
+		named.setOpaque(false);
+		named.add(nameAndIcon, BorderLayout.WEST);
+		named.add(name, BorderLayout.CENTER);
+
+		int total = 0;
+		for (Fight fight : group)
+		{
+			total += snapshot.getView() == DamageView.INCOMING ? fight.damageTaken() : fight.damageDone();
+		}
+		JLabel amount = new JLabel(CombatLogFormatter.formatDamage(total), SwingConstants.RIGHT);
+		amount.setFont(uiFont());
+		amount.setForeground(snapshot.getView() == DamageView.INCOMING ? DamageColors.INCOMING : DamageColors.OUTGOING);
+		holdWidth(amount);
+
+		row.add(named, BorderLayout.CENTER);
+		row.add(amount, BorderLayout.EAST);
+		String key = groupKey(first);
+		bindClick(row, () ->
+		{
+			groupsOpen.put(key, !open);
+			refresh();
+		});
+		fitRow(row);
+		block.add(row);
+
+		String summary = FightSummary.groupLine(group);
+		if (summary != null && snapshot.getView() != DamageView.INCOMING)
+		{
+			block.add(noteLabel(summary, false));
+		}
+		fitRow(block);
+		return block;
+	}
+
+	private static JLabel noteLabel(String text, boolean nowrap)
+	{
+		String style = nowrap ? "width:209px;white-space:nowrap" : "width:190px";
+		JLabel label = new JLabel("<html><body style='" + style + "'>" + text + "</body></html>");
+		label.setFont(uiFont());
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setAlignmentX(LEFT_ALIGNMENT);
+		return label;
+	}
+
+	private static String groupKey(Fight fight)
+	{
+		return fight.getKind() + "\0" + fight.getName();
+	}
+
+	private void installDeleteMenu(Component component, Fight fight)
+	{
+		component.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				showDeleteMenu(event, fight);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event)
+			{
+				showDeleteMenu(event, fight);
+			}
+		});
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				installDeleteMenu(container.getComponent(i), fight);
+			}
+		}
+	}
+
+	private void showDeleteMenu(MouseEvent event, Fight fight)
+	{
+		if (!event.isPopupTrigger())
+		{
+			return;
+		}
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem delete = new JMenuItem("Delete");
+		delete.addActionListener(action ->
+		{
+			expanded.remove(fight.getId());
+			combatLog.removeFight(fight.getId());
+			refresh();
+		});
+		menu.add(delete);
+		menu.show(event.getComponent(), event.getX(), event.getY());
 	}
 
 	private JPanel fightHeader(Fight fight, boolean open)
@@ -625,17 +799,40 @@ class CombatLogPanel extends PluginPanel
 
 		row.add(named, BorderLayout.CENTER);
 		row.add(total, BorderLayout.EAST);
-		row.addMouseListener(new MouseAdapter()
+		bindClick(row, () ->
+		{
+			expanded.put(fight.getId(), !open);
+			refresh();
+		});
+		fitRow(row);
+		return row;
+	}
+
+	/**
+	 * Clicks land on the plus, the name, or the icon, not on the row behind them.
+	 */
+	private static void bindClick(Component component, Runnable action)
+	{
+		component.addMouseListener(new MouseAdapter()
 		{
 			@Override
 			public void mouseClicked(MouseEvent event)
 			{
-				expanded.put(fight.getId(), !open);
-				refresh();
+				if (!SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 1)
+				{
+					return;
+				}
+				action.run();
 			}
 		});
-		fitRow(row);
-		return row;
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				bindClick(container.getComponent(i), action);
+			}
+		}
 	}
 
 	private static String missDetail(CombatSnapshot snapshot)

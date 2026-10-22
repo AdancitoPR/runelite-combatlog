@@ -6,19 +6,15 @@ Plugin icon identified by the Arkan blade.
 
 ## Examples
 
-A few Cerberus kills, collapsed. The header is the session total. Each fight has its time, accuracy, and any ticks lost. Best time for that monster is repeated under the fight.
+A few kills, collapsed. The header is the session total. Each fight has its time, accuracy, and any ticks lost. Best time for that monster is repeated under the fight.
+
+![Fights grouped by monster](screenshots/fight-list.png)
 
 Blocks are recorded by default and do not count toward damage or DPS. Multi-hit weapons log one row per hitsplat.
-<img width="272" height="385" alt="image" src="https://github.com/user-attachments/assets/09c4b7cd-67d1-424f-b92d-5f07ae94ecec" />
-<img width="282" height="391" alt="image" src="https://github.com/user-attachments/assets/1f58b062-efe7-4ff3-91c9-ba3bba7e4b9d" />
-<img width="323" height="699" alt="image" src="https://github.com/user-attachments/assets/cceb80d0-761f-4544-9472-bfb3430229d7" />
-
-
-
-
 
 ![Cerberus fight with weapon, prayer, and thrall icons](screenshots/cerberus-hits.png)
 
+Example of both outgoing and incoming damage with an undead cow. Plugin shows the attack style of the damage received and icon of the weapon used and offensive prayer if used.
 
 ![Undead cow fight with dealt and taken rows](screenshots/undead-cow.png)
 

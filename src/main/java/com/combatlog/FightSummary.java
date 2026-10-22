@@ -136,4 +136,43 @@ public final class FightSummary
 		}
 		return String.format(Locale.US, "Best Time %.1fs · %d %s", best, kills, kills == 1 ? "kill" : "kills");
 	}
+
+	/**
+	 * Kill count, average time, and best time for the finished fights of one monster.
+	 */
+	@Nullable
+	public static String groupLine(List<Fight> fights)
+	{
+		if (fights.isEmpty())
+		{
+			return null;
+		}
+		int kills = 0;
+		double total = 0;
+		double best = Double.MAX_VALUE;
+		for (Fight fight : fights)
+		{
+			if (!fight.isKilled() || !fight.hasTickTiming())
+			{
+				continue;
+			}
+			double seconds = Math.max(0, fight.getEndTick() - fight.getStartTick()) * TICK_SECONDS;
+			total += seconds;
+			kills++;
+			if (seconds < best)
+			{
+				best = seconds;
+			}
+		}
+		if (kills == 0)
+		{
+			int count = fights.size();
+			return count + (count == 1 ? " fight" : " fights");
+		}
+		return String.format(Locale.US, "%d %s · avg %.1fs · best %.1fs",
+			kills,
+			kills == 1 ? "kill" : "kills",
+			total / kills,
+			best);
+	}
 }

@@ -136,6 +136,23 @@ public class CombatLog
 		}
 	}
 
+	public void removeFight(long fightId)
+	{
+		synchronized (lock)
+		{
+			List<HitRecord> next = new ArrayList<>();
+			for (HitRecord hit : hits)
+			{
+				if (hit.getFightId() == null || hit.getFightId() != fightId)
+				{
+					next.add(hit);
+				}
+			}
+			hits = Collections.unmodifiableList(next);
+			fights.remove(fightId);
+		}
+	}
+
 	public void setMaxEntries(int maxEntries)
 	{
 		synchronized (lock)
