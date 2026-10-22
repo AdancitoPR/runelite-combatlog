@@ -38,6 +38,7 @@ class MonsterIcons
 	private final Set<Integer> pending = ConcurrentHashMap.newKeySet();
 	private final Set<Integer> missing = ConcurrentHashMap.newKeySet();
 	private volatile Runnable onLoaded;
+	private volatile boolean enabled = true;
 
 	MonsterIcons()
 	{
@@ -55,10 +56,18 @@ class MonsterIcons
 		onLoaded = callback;
 	}
 
+	/**
+	 * When off, nothing is downloaded. Icons already loaded are still returned.
+	 */
+	void setEnabled(boolean enabled)
+	{
+		this.enabled = enabled;
+	}
+
 	BufferedImage get(int npcId)
 	{
 		BufferedImage icon = icons.get(npcId);
-		if (icon != null || missing.contains(npcId) || !pending.add(npcId))
+		if (icon != null || !enabled || missing.contains(npcId) || !pending.add(npcId))
 		{
 			return icon;
 		}

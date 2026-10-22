@@ -33,7 +33,7 @@ A spec is labeled Spec.
 
 The three icons under the totals switch the list between outgoing damage, incoming damage, and both. The overlay summarizes the same view. 
 
-Log deleted on logout. A world hop keeps it.
+The log is kept on logout unless Clear on logout is on. A world hop keeps it.
 
 ## Settings
 
@@ -44,8 +44,11 @@ Log deleted on logout. A world hop keeps it.
 | Log length | 300 | Drop the oldest rows after this. |
 | Clear on logout | Off | World hops keep the log. |
 | Damage view | Outgoing | Outgoing, incoming, or both. The sidebar icons change this too. |
+| Download monster icons | On | Loads NPC pictures from chisel.weirdgloop.org (OSRS Wiki). Sends the NPC id to that site. Off stops the requests; icons already loaded still show. |
 | Show overlay | On | Recent hits on the game view. |
 | Overlay rows | 6 | How many hits the overlay lists. |
 | Overlay width | 140px | From 120 to 400. |
 
+## Third-party requests
 
+The only network request the plugin makes of its own is for monster icons. It downloads each NPC picture from chisel.weirdgloop.org (OSRS Wiki), and the request contains the NPC id. Turn off Download monster icons to stop it. Item and weapon icons come from RuneLite.

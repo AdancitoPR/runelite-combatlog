@@ -1,5 +1,7 @@
 package com.combatlog;
 
+import javax.annotation.Nullable;
+
 /**
  * Damage above the hitpoints the NPC had left before the killing blow.
  * Returns 0 when the client has no health for that NPC.
@@ -8,6 +10,14 @@ public final class Overkill
 {
 	private Overkill()
 	{
+	}
+
+	/**
+	 * NPCManager has no hitpoints for some NPCs and returns null for them.
+	 */
+	public static int amount(int hitAmount, int healthRatio, int healthScale, @Nullable Integer maxHp, boolean killed)
+	{
+		return amount(hitAmount, healthRatio, healthScale, maxHp == null ? -1 : maxHp, killed);
 	}
 
 	public static int amount(int hitAmount, int healthRatio, int healthScale, int maxHp, boolean killed)

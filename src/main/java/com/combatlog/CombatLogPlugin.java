@@ -5,6 +5,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -15,16 +16,13 @@ import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
-import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
 import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
-import net.runelite.api.ItemID;
 import net.runelite.api.HitsplatID;
-import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
@@ -32,8 +30,7 @@ import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
 import net.runelite.api.Projectile;
 import net.runelite.api.StructComposition;
-import net.runelite.api.VarPlayer;
-import net.runelite.api.Varbits;
+import net.runelite.api.WorldView;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -43,6 +40,11 @@ import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.gameval.VarbitID;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -98,11 +100,19 @@ public class CombatLogPlugin extends Plugin
 	@Inject
 	private NPCManager npcManager;
 
+	@Inject
+	private MonsterIcons monsterIcons;
+
+	@Inject
+	private ClientThread clientThread;
+
 	private NavigationButton navButton;
 	private volatile boolean running;
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
+	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
+	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
 	private int vengeanceClearedTick = -1;
@@ -129,6 +139,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		running = true;
 		combatLog.setMaxEntries(config.maxEntries());
+		monsterIcons.setEnabled(config.monsterIcons());
 		loadSidebarIcon();
 		if (config.showOverlay())
 		{
@@ -142,6 +153,8 @@ public class CombatLogPlugin extends Plugin
 	protected void shutDown()
 	{
 		running = false;
+		// The handlers that use this state run on the client thread, and one may still be running.
+		clientThread.invokeLater(this::resetState);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -149,6 +162,36 @@ public class CombatLogPlugin extends Plugin
 		}
 		overlayManager.remove(overlay);
 		log.debug("{} stopped", NAME);
+	}
+
+	/**
+	 * Forgets everything tied to the current session of play. The log itself
+	 * is left alone.
+	 */
+	private void resetState()
+	{
+		pending.clear();
+		lastHealth.clear();
+		quietDespawns.clear();
+		incomingByTick.clear();
+		incomingStyles.clear();
+		specMarker.reset();
+		lastSpecPercent = -1;
+		lastVengeance = -1;
+		vengeanceClearedTick = -1;
+		thrallMax = 0;
+		thrallNpcId = null;
+		playerAttackTick = -1;
+		playerAttackSplats = 1;
+		playerAttackIndex = null;
+		swingPrayerTick = -1;
+		swingPrayerIndex = null;
+		swingPrayerIcon = null;
+		lastHitTick = -100;
+		lastSeenWeapon = null;
+		opponentIndex = null;
+		opponentName = null;
+		opponentNpcId = null;
 	}
 
 	private void loadSidebarIcon()
@@ -235,6 +278,9 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = client.getTickCount();
 		flushPending(tick);
+		specMarker.expire(tick);
+		incomingByTick.keySet().removeIf(old -> old < tick - 5);
+		closeQuietDespawns(tick);
 		refreshThrall();
 		Player player = client.getLocalPlayer();
 		boolean interacting = player != null && player.getInteracting() != null;
@@ -242,7 +288,7 @@ public class CombatLogPlugin extends Plugin
 		{
 			combatLog.noteCombatTick(tick);
 		}
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			int scale = npc.getHealthScale();
 			int ratio = npc.getHealthRatio();
@@ -305,7 +351,7 @@ public class CombatLogPlugin extends Plugin
 	public void onVarbitChanged(VarbitChanged event)
 	{
 		int tick = client.getTickCount();
-		if (event.getVarpId() == VarPlayer.SPECIAL_ATTACK_PERCENT)
+		if (event.getVarpId() == VarPlayerID.SA_ENERGY)
 		{
 			int current = event.getValue();
 			if (lastSpecPercent >= 0 && current < lastSpecPercent)
@@ -326,7 +372,7 @@ public class CombatLogPlugin extends Plugin
 			}
 			lastSpecPercent = current;
 		}
-		if (event.getVarbitId() == Varbits.VENGEANCE_ACTIVE)
+		if (event.getVarbitId() == VarbitID.VENGEANCE_REBOUND)
 		{
 			int current = event.getValue();
 			if (lastVengeance > 0 && current == 0)
@@ -340,7 +386,7 @@ public class CombatLogPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (event.getContainerId() != InventoryID.EQUIPMENT.getId())
+		if (event.getContainerId() != InventoryID.WORN)
 		{
 			return;
 		}
@@ -360,8 +406,33 @@ public class CombatLogPlugin extends Plugin
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned event)
 	{
-		combatLog.closeLife(event.getNpc().getIndex(), client.getTickCount());
-		lastHealth.remove(event.getNpc().getIndex());
+		NPC npc = event.getNpc();
+		int index = npc.getIndex();
+		int tick = client.getTickCount();
+		if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
+		{
+			combatLog.closeLife(index, tick);
+		}
+		else
+		{
+			// Hits from this tick are still pending, so the quiet close waits for them.
+			quietDespawns.put(index, tick);
+		}
+		lastHealth.remove(index);
+	}
+
+	private void closeQuietDespawns(int currentTick)
+	{
+		Iterator<Map.Entry<Integer, Integer>> iterator = quietDespawns.entrySet().iterator();
+		while (iterator.hasNext())
+		{
+			Map.Entry<Integer, Integer> entry = iterator.next();
+			if (entry.getValue() < currentTick)
+			{
+				combatLog.closeQuiet(entry.getKey(), entry.getValue());
+				iterator.remove();
+			}
+		}
 	}
 
 	@Subscribe
@@ -388,6 +459,8 @@ public class CombatLogPlugin extends Plugin
 			return;
 		}
 
+		int type = event.getHitsplat().getHitsplatType();
+		boolean burn = type == HitsplatID.BURN;
 		TargetKind targetKind = null;
 		Integer npcId = null;
 		Integer npcIndex = null;
@@ -397,6 +470,11 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (burn && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
+			{
+				// Burn on an NPC you are not fighting is someone else's, and must not become the opponent.
+				return;
+			}
 			if (!isThrall(npc))
 			{
 				rememberOpponent(npc);
@@ -408,8 +486,6 @@ public class CombatLogPlugin extends Plugin
 		}
 
 		int amount = event.getHitsplat().getAmount();
-		int type = event.getHitsplat().getHitsplatType();
-		boolean burn = type == HitsplatID.BURN;
 		boolean splash = !burn && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
 		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
 		Integer weapon = combatLog.weaponFor(npcIndex, tick, equippedWeaponId());
@@ -429,18 +505,25 @@ public class CombatLogPlugin extends Plugin
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
 		record = record.withMeta(tick, null, null, weapon, false, burn ? DamageSource.BURN : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick && !recentAttack, weapon, killed, specMarker.serial()));
+		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
 		lastHitTick = tick;
 	}
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
-		if (event.getGameState() == GameState.LOGIN_SCREEN && config.clearOnLogout())
+		GameState state = event.getGameState();
+		if (state != GameState.LOGIN_SCREEN && state != GameState.HOPPING)
+		{
+			return;
+		}
+		resetState();
+		combatLog.closeAllQuiet(client.getTickCount());
+		if (state == GameState.LOGIN_SCREEN && config.clearOnLogout())
 		{
 			combatLog.clear();
-			queueRefresh();
 		}
+		queueRefresh();
 	}
 
 	@Subscribe
@@ -454,6 +537,11 @@ public class CombatLogPlugin extends Plugin
 		if ("maxEntries".equals(event.getKey()))
 		{
 			combatLog.setMaxEntries(config.maxEntries());
+			queueRefresh();
+		}
+		else if ("monsterIcons".equals(event.getKey()))
+		{
+			monsterIcons.setEnabled(config.monsterIcons());
 			queueRefresh();
 		}
 		else if ("showOverlay".equals(event.getKey()))
@@ -538,6 +626,10 @@ public class CombatLogPlugin extends Plugin
 		{
 			record = record.withStyle(style);
 		}
+		if (record.getSource() == DamageSource.WEAPON && !record.isMiss() && record.getAmount() > 0)
+		{
+			incomingByTick.computeIfAbsent(tick, key -> new ArrayList<>()).add(record.getAmount());
+		}
 		combatLog.add(record);
 		lastHitTick = tick;
 		queueRefresh();
@@ -575,11 +667,11 @@ public class CombatLogPlugin extends Plugin
 		}
 		boolean aimed = IncomingStyles.aimedAt(
 			projectile.getTargetActor(),
-			projectile.getInteracting(),
+			null,
 			player,
 			projectile.getTargetPoint(),
 			player.getWorldLocation());
-		if (!aimed && !nearPlayer(projectile.getTarget(), player.getLocalLocation()))
+		if (!aimed && !nearPlayer(projectile.getTargetPoint(), player.getWorldLocation()))
 		{
 			return;
 		}
@@ -588,15 +680,26 @@ public class CombatLogPlugin extends Plugin
 		incomingStyles.noteProjectile(index, projectile.getEndCycle(), projectileId, IncomingStyles.isMagicProjectile(projectileId));
 	}
 
-	private static boolean nearPlayer(@Nullable LocalPoint target, @Nullable LocalPoint player)
+	private static boolean nearPlayer(@Nullable WorldPoint target, @Nullable WorldPoint player)
 	{
-		if (target == null || player == null)
+		if (target == null || player == null || target.getPlane() != player.getPlane())
 		{
 			return false;
 		}
 		int dx = Math.abs(target.getX() - player.getX());
 		int dy = Math.abs(target.getY() - player.getY());
-		return Math.max(dx, dy) <= 256;
+		return Math.max(dx, dy) <= 2;
+	}
+
+	/** The top level world view is missing around state changes, which reads as no NPCs. */
+	private Iterable<? extends NPC> npcs()
+	{
+		WorldView worldView = client.getTopLevelWorldView();
+		if (worldView == null)
+		{
+			return Collections.<NPC>emptyList();
+		}
+		return worldView.npcs();
 	}
 
 	private NPC interactingNpc()
@@ -622,7 +725,7 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		NPC found = null;
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (npc.getInteracting() != player || isThrall(npc))
 			{
@@ -644,7 +747,7 @@ public class CombatLogPlugin extends Plugin
 		{
 			return null;
 		}
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (npc.getIndex() == index)
 			{
@@ -686,7 +789,8 @@ public class CombatLogPlugin extends Plugin
 			}
 			return 0;
 		}
-		return Overkill.amount(amount, previous[0], previous[1], npcManager.getHealth(npcId), true);
+		Integer maxHp = npcManager.getHealth(npcId);
+		return Overkill.amount(amount, previous[0], previous[1], maxHp, true);
 	}
 
 	private int attackSpeed(Integer weaponId)
@@ -706,7 +810,7 @@ public class CombatLogPlugin extends Plugin
 	@Nullable
 	private Integer offensivePrayerIcon()
 	{
-		OffensivePrayers.Icon icon = OffensivePrayers.active(client::isPrayerActive);
+		OffensivePrayers.Icon icon = OffensivePrayers.active(prayer -> client.getVarbitValue(prayer.getVarbit()) == 1);
 		return icon == null ? null : icon.getSpriteId();
 	}
 
@@ -747,12 +851,12 @@ public class CombatLogPlugin extends Plugin
 
 	private int attackStyle()
 	{
-		return client.getVarpValue(VarPlayer.ATTACK_STYLE);
+		return client.getVarpValue(VarPlayerID.COM_MODE);
 	}
 
 	private int defensiveCasting()
 	{
-		return client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
+		return client.getVarbitValue(VarbitID.AUTOCAST_DEFMODE);
 	}
 
 	@Nullable
@@ -760,7 +864,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		try
 		{
-			int weaponType = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+			int weaponType = client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY);
 			EnumComposition weapons = client.getEnum(EnumID.WEAPON_STYLES);
 			if (weapons == null)
 			{
@@ -793,7 +897,7 @@ public class CombatLogPlugin extends Plugin
 
 	private Integer equippedWeaponId()
 	{
-		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
 		if (equipment == null)
 		{
 			return null;
@@ -822,7 +926,7 @@ public class CombatLogPlugin extends Plugin
 
 	private void refreshThrall()
 	{
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (!isThrall(npc))
 			{
@@ -891,11 +995,12 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = hits.get(0).tick;
 		boolean swung = thrallMax > 0 && thrallNpcId != null;
+		int vengeanceAt = pickVengeance(hits, tick);
 		List<Integer> eligible = new ArrayList<>();
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn)
+			if (hit.burn || i == vengeanceAt)
 			{
 				continue;
 			}
@@ -916,15 +1021,19 @@ public class CombatLogPlugin extends Plugin
 		}
 		int picked = Thralls.pick(amounts, blocks, slots, thrallMax, swung && thrallMax > 0);
 		int thrallAt = picked < 0 ? -1 : eligible.get(picked);
+		if (vengeanceAt < 0)
+		{
+			vengeanceAt = unmatchedVengeance(hits, thrallAt);
+		}
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
 			DamageSource source = hit.burn
 				? DamageSource.BURN
-				: i == thrallAt
-					? DamageSource.THRALL
-					: hit.vengeance
-						? DamageSource.VENGEANCE
+				: i == vengeanceAt
+					? DamageSource.VENGEANCE
+					: i == thrallAt
+						? DamageSource.THRALL
 						: DamageSource.WEAPON;
 			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
 			Integer weapon = source == DamageSource.THRALL
@@ -946,6 +1055,47 @@ public class CombatLogPlugin extends Plugin
 			}
 			log.debug("{} [{}]", record.describe(), record.getSource());
 		}
+	}
+
+	/**
+	 * The hit this tick that matches 75% of damage taken on a vengeance tick.
+	 * It is picked before the thrall because the match is the stronger evidence.
+	 */
+	private int pickVengeance(List<PendingHit> hits, int tick)
+	{
+		int[] amounts = new int[hits.size()];
+		boolean[] candidates = new boolean[hits.size()];
+		boolean any = false;
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			amounts[i] = hit.record.getAmount();
+			candidates[i] = !hit.burn && hit.vengeanceTick;
+			any |= candidates[i];
+		}
+		if (!any)
+		{
+			return -1;
+		}
+		List<Integer> incoming = incomingByTick.get(tick);
+		return incoming == null ? -1 : Vengeance.pick(amounts, candidates, incoming);
+	}
+
+	/**
+	 * Without a match, the first hit on a vengeance tick with no recent attack
+	 * behind it, after the thrall has taken its hit.
+	 */
+	private static int unmatchedVengeance(List<PendingHit> hits, int thrallAt)
+	{
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			if (i != thrallAt && !hit.burn && hit.vengeanceTick && !hit.recentAttack)
+			{
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	private static int attackSplats(Integer weaponId, Actor target)
@@ -981,18 +1131,20 @@ public class CombatLogPlugin extends Plugin
 		private final HitRecord record;
 		private final Integer npcIndex;
 		private final boolean burn;
-		private final boolean vengeance;
+		private final boolean vengeanceTick;
+		private final boolean recentAttack;
 		private final Integer weapon;
 		private final boolean killed;
 		private final int specSerial;
 
-		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeance, Integer weapon, boolean killed, int specSerial)
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial)
 		{
 			this.tick = tick;
 			this.record = record;
 			this.npcIndex = npcIndex;
 			this.burn = burn;
-			this.vengeance = vengeance;
+			this.vengeanceTick = vengeanceTick;
+			this.recentAttack = recentAttack;
 			this.weapon = weapon;
 			this.killed = killed;
 			this.specSerial = specSerial;

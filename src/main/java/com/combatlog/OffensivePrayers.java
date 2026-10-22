@@ -3,7 +3,7 @@ package com.combatlog;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import net.runelite.api.Prayer;
-import net.runelite.api.SpriteID;
+import net.runelite.api.gameval.SpriteID;
 
 /**
  * The damage prayer to draw beside a weapon. When attack and strength are
@@ -102,57 +102,57 @@ final class OffensivePrayers
 		switch (prayer)
 		{
 			case PIETY:
-				return new Icon(SpriteID.PRAYER_PIETY, "Piety");
+				return new Icon(SpriteID.Prayeron.PIETY, "Piety");
 			case RIGOUR:
-				return new Icon(SpriteID.PRAYER_RIGOUR, "Rigour");
+				return new Icon(SpriteID.Prayeron.RIGOUR, "Rigour");
 			case AUGURY:
-				return new Icon(SpriteID.PRAYER_AUGURY, "Augury");
+				return new Icon(SpriteID.Prayeron.AUGURY, "Augury");
 			case CHIVALRY:
-				return new Icon(SpriteID.PRAYER_CHIVALRY, "Chivalry");
+				return new Icon(SpriteID.Prayeron.CHIVALRY, "Chivalry");
 			case DEADEYE:
-				return new Icon(SpriteID.PRAYER_DEADEYE, "Deadeye");
+				return new Icon(SpriteID.Prayeron.DEADEYE, "Deadeye");
 			case MYSTIC_VIGOUR:
-				return new Icon(SpriteID.PRAYER_MYSTIC_VIGOUR, "Mystic Vigour");
+				return new Icon(SpriteID.Prayeron.MYSTIC_VIGOUR, "Mystic Vigour");
 			case RP_DECIMATE:
-				return new Icon(SpriteID.PRAYER_RP_DECIMATE, "Decimate");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.DECIMATE, "Decimate");
 			case RP_ANNIHILATE:
-				return new Icon(SpriteID.PRAYER_RP_ANNIHILATE, "Annihilate");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.ANNIHILATE, "Annihilate");
 			case RP_VAPORISE:
-				return new Icon(SpriteID.PRAYER_RP_VAPORISE, "Vaporise");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.VAPORISE, "Vaporise");
 			case ULTIMATE_STRENGTH:
-				return new Icon(SpriteID.PRAYER_ULTIMATE_STRENGTH, "Ultimate Strength");
+				return new Icon(SpriteID.Prayeron.ULTIMATE_STRENGTH, "Ultimate Strength");
 			case EAGLE_EYE:
-				return new Icon(SpriteID.PRAYER_EAGLE_EYE, "Eagle Eye");
+				return new Icon(SpriteID.Prayeron.EAGLE_EYE, "Eagle Eye");
 			case MYSTIC_MIGHT:
-				return new Icon(SpriteID.PRAYER_MYSTIC_MIGHT, "Mystic Might");
+				return new Icon(SpriteID.Prayeron.MYSTIC_MIGHT, "Mystic Might");
 			case INCREDIBLE_REFLEXES:
-				return new Icon(SpriteID.PRAYER_INCREDIBLE_REFLEXES, "Incredible Reflexes");
+				return new Icon(SpriteID.Prayeron.INCREDIBLE_REFLEXES, "Incredible Reflexes");
 			case SUPERHUMAN_STRENGTH:
-				return new Icon(SpriteID.PRAYER_SUPERHUMAN_STRENGTH, "Superhuman Strength");
+				return new Icon(SpriteID.Prayeron.SUPERHUMAN_STRENGTH, "Superhuman Strength");
 			case HAWK_EYE:
-				return new Icon(SpriteID.PRAYER_HAWK_EYE, "Hawk Eye");
+				return new Icon(SpriteID.Prayeron.HAWK_EYE, "Hawk Eye");
 			case MYSTIC_LORE:
-				return new Icon(SpriteID.PRAYER_MYSTIC_LORE, "Mystic Lore");
+				return new Icon(SpriteID.Prayeron.MYSTIC_LORE, "Mystic Lore");
 			case IMPROVED_REFLEXES:
-				return new Icon(SpriteID.PRAYER_IMPROVED_REFLEXES, "Improved Reflexes");
+				return new Icon(SpriteID.Prayeron.IMPROVED_REFLEXES, "Improved Reflexes");
 			case BURST_OF_STRENGTH:
-				return new Icon(SpriteID.PRAYER_BURST_OF_STRENGTH, "Burst of Strength");
+				return new Icon(SpriteID.Prayeron.BURST_OF_STRENGTH, "Burst of Strength");
 			case SHARP_EYE:
-				return new Icon(SpriteID.PRAYER_SHARP_EYE, "Sharp Eye");
+				return new Icon(SpriteID.Prayeron.SHARP_EYE, "Sharp Eye");
 			case MYSTIC_WILL:
-				return new Icon(SpriteID.PRAYER_MYSTIC_WILL, "Mystic Will");
+				return new Icon(SpriteID.Prayeron.MYSTIC_WILL, "Mystic Will");
 			case CLARITY_OF_THOUGHT:
-				return new Icon(SpriteID.PRAYER_CLARITY_OF_THOUGHT, "Clarity of Thought");
+				return new Icon(SpriteID.Prayeron.CLARITY_OF_THOUGHT, "Clarity of Thought");
 			case RP_ANCIENT_STRENGTH:
-				return new Icon(SpriteID.PRAYER_RP_ANCIENT_STRENGTH, "Ancient Strength");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.ANCIENT_STRENGTH, "Ancient Strength");
 			case RP_ANCIENT_SIGHT:
-				return new Icon(SpriteID.PRAYER_RP_ANCIENT_SIGHT, "Ancient Sight");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.ANCIENT_SIGHT, "Ancient Sight");
 			case RP_ANCIENT_WILL:
-				return new Icon(SpriteID.PRAYER_RP_ANCIENT_WILL, "Ancient Will");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.ANCIENT_WILL, "Ancient Will");
 			case RP_BERSERKER:
-				return new Icon(SpriteID.PRAYER_RP_BERSERKER, "Berserker");
+				return new Icon(SpriteID.IconPrayerZaros01_30x30.BERSERKER, "Berserker");
 			default:
-				return new Icon(SpriteID.UNKNOWN_PRAYER_ICON, "Prayer");
+				return new Icon(SpriteID.OptionsIconsSmall.PRAYER, "Prayer");
 		}
 	}
 }

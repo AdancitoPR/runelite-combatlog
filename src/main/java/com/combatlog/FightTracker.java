@@ -91,6 +91,55 @@ final class FightTracker
 		lastClosed.put(key, fight);
 	}
 
+	/**
+	 * Closes the life without a kill, for an NPC that left the scene while
+	 * still alive. It does not count toward kills or best times.
+	 */
+	void closeQuiet(@Nullable Integer npcIndex, int tick)
+	{
+		if (npcIndex == null)
+		{
+			return;
+		}
+		if (tick > lastTick)
+		{
+			lastTick = tick;
+		}
+		String key = npcKey(npcIndex);
+		Fight fight = open.get(key);
+		if (fight == null || fight.isClosed())
+		{
+			return;
+		}
+		fight.closeQuiet(fight.lastTick());
+		open.remove(key);
+		lastClosed.put(key, fight);
+	}
+
+	/**
+	 * Closes every open NPC life without a kill, for a logout or world hop
+	 * where the NPCs leave the scene without despawn events.
+	 */
+	void closeAllQuiet(int tick)
+	{
+		if (tick > lastTick)
+		{
+			lastTick = tick;
+		}
+		for (Iterator<Map.Entry<String, Fight>> iterator = open.entrySet().iterator(); iterator.hasNext();)
+		{
+			Map.Entry<String, Fight> entry = iterator.next();
+			Fight fight = entry.getValue();
+			if (fight.getKind() != TargetKind.NPC || fight.isClosed())
+			{
+				continue;
+			}
+			fight.closeQuiet(fight.lastTick());
+			lastClosed.put(entry.getKey(), fight);
+			iterator.remove();
+		}
+	}
+
 	void noteForm(@Nullable Integer npcIndex, int npcId)
 	{
 		if (npcIndex == null)
@@ -114,6 +163,8 @@ final class FightTracker
 		{
 			lastTick = swing.getTick();
 		}
+		int oldest = swing.getTick() - WEAPON_WINDOW;
+		queued.removeIf(old -> old.getTick() < oldest);
 		Fight fight = swing.getNpcIndex() != null ? open.get(npcKey(swing.getNpcIndex())) : open.get(playerKey(swing.getName()));
 		if (fight != null && !fight.isClosed())
 		{
@@ -182,15 +233,17 @@ final class FightTracker
 
 	int activeTickCount(int oldestTick)
 	{
-		int count = 0;
-		for (int tick : activeTicks)
-		{
-			if (oldestTick <= 0 || tick >= oldestTick)
-			{
-				count++;
-			}
-		}
-		return count;
+		return oldestTick <= 0 ? activeTicks.size() : activeTicks.tailSet(oldestTick).size();
+	}
+
+	void pruneTicksBefore(int tick)
+	{
+		activeTicks.headSet(tick).clear();
+	}
+
+	int queuedSize()
+	{
+		return queued.size();
 	}
 
 	List<Fight> fights()
@@ -200,7 +253,7 @@ final class FightTracker
 		{
 			if (!fight.getHits().isEmpty())
 			{
-				copy.add(fight);
+				copy.add(fight.copy());
 			}
 		}
 		copy.sort(Comparator.comparingLong((Fight fight) -> fight.lastTick()).reversed());

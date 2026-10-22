@@ -28,6 +28,8 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class CombatLogPanelTest
@@ -122,6 +124,29 @@ public class CombatLogPanelTest
 			click(findLabel(panel, "+"));
 			assertEquals(0, countLabels(panel, "+"));
 			assertEquals(2, countLabels(panel, "-"));
+		});
+	}
+
+	@Test
+	public void clearConfirmationSurvivesRefreshes() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(new HitRecord(1_000L, "Bear", TargetKind.NPC, 105, 1, null, 27, HitKind.HIT, null));
+			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			findButton(panel, "Clear").doClick();
+			assertNotNull(findButton(panel, "Confirm"));
+			log.add(new HitRecord(2_000L, "Bear", TargetKind.NPC, 105, 1, null, 9, HitKind.HIT, null));
+			panel.refresh();
+			assertNotNull(findButton(panel, "Confirm"));
+			assertFalse(log.summarize(3_000L, 10).isEmpty());
+
+			findButton(panel, "Confirm").doClick();
+			assertTrue(log.summarize(3_000L, 10).isEmpty());
+			assertNull(findButton(panel, "Confirm"));
 		});
 	}
 

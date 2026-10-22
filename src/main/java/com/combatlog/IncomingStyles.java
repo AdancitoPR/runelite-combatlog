@@ -23,6 +23,12 @@ final class IncomingStyles
 	private final List<Seen> recent = new ArrayList<>();
 	private final List<Seen> playerSpells = new ArrayList<>();
 
+	void clear()
+	{
+		recent.clear();
+		playerSpells.clear();
+	}
+
 	void noteProjectile(@Nullable Integer npcIndex, int endCycle, boolean magic)
 	{
 		noteProjectile(npcIndex, endCycle, 0, magic);

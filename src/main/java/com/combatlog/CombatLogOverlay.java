@@ -31,6 +31,9 @@ class CombatLogOverlay extends OverlayPanel
 	private final WeaponIcons weaponIcons;
 	private final StyleIcons styleIcons;
 	private final PrayerIcons prayerIcons;
+	private CombatSnapshot snapshot;
+	private int snapshotVersion;
+	private DamageView snapshotView;
 
 	@Inject
 	CombatLogOverlay(CombatLogPlugin plugin, CombatLog combatLog, CombatLogConfig config, MonsterIcons monsterIcons, WeaponIcons weaponIcons, StyleIcons styleIcons, PrayerIcons prayerIcons)
@@ -55,7 +58,7 @@ class CombatLogOverlay extends OverlayPanel
 			return null;
 		}
 
-		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
+		CombatSnapshot snapshot = snapshot();
 		if (snapshot.isEmpty())
 		{
 			return null;
@@ -120,6 +123,23 @@ class CombatLogOverlay extends OverlayPanel
 
 		panelComponent.setPreferredSize(new Dimension(overlayWidth(), 0));
 		return super.render(graphics);
+	}
+
+	/**
+	 * The overlay never reads time based fields, so a summary stays valid until
+	 * the log changes or the view does.
+	 */
+	private CombatSnapshot snapshot()
+	{
+		DamageView view = damageView();
+		int version = combatLog.version();
+		if (snapshot == null || version != snapshotVersion || view != snapshotView)
+		{
+			snapshot = combatLog.summarize(System.currentTimeMillis(), 10, view);
+			snapshotVersion = version;
+			snapshotView = view;
+		}
+		return snapshot;
 	}
 
 	private int overlayWidth()
