@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
-import net.runelite.api.SpriteID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.client.game.SpriteManager;
 
 /**
@@ -57,11 +57,11 @@ class StyleIcons
 		switch (style)
 		{
 			case RANGED:
-				return SpriteID.PRAYER_PROTECT_FROM_MISSILES;
+				return SpriteID.Prayeron.PROTECT_FROM_MISSILES;
 			case MAGIC:
-				return SpriteID.PRAYER_PROTECT_FROM_MAGIC;
+				return SpriteID.Prayeron.PROTECT_FROM_MAGIC;
 			default:
-				return SpriteID.PRAYER_PROTECT_FROM_MELEE;
+				return SpriteID.Prayeron.PROTECT_FROM_MELEE;
 		}
 	}
 

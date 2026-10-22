@@ -6,7 +6,7 @@ import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
-import net.runelite.api.SpriteID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
@@ -696,7 +696,7 @@ public class CombatLogTest
 	{
 		OffensivePrayers.Icon piety = OffensivePrayers.active(prayer -> prayer == Prayer.PIETY);
 		assertEquals("Piety", piety.getName());
-		assertEquals(SpriteID.PRAYER_PIETY, piety.getSpriteId());
+		assertEquals(SpriteID.Prayeron.PIETY, piety.getSpriteId());
 		assertEquals("Piety", OffensivePrayers.name(piety.getSpriteId()));
 
 		OffensivePrayers.Icon strength = OffensivePrayers.active(prayer ->
@@ -711,10 +711,10 @@ public class CombatLogTest
 		assertNull(OffensivePrayers.active(prayer -> false));
 
 		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withPrayer(piety.getSpriteId());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.getPrayerIcon());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
 		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
 	}
 
 	@Test
