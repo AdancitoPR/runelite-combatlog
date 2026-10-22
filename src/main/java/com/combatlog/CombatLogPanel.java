@@ -389,7 +389,6 @@ class CombatLogPanel extends PluginPanel
 	void refresh()
 	{
 		applyTabIcons();
-		disarmClear();
 		CombatSnapshot snapshot = combatLog.summarize(System.currentTimeMillis(), 10, damageView());
 		JScrollPane scrollPane = getScrollPane();
 		int previousHeight = getPreferredSize().height;
