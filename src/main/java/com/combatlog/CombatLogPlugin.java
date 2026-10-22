@@ -104,6 +104,7 @@ public class CombatLogPlugin extends Plugin
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
 	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
+	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
 	private int vengeanceClearedTick = -1;
@@ -236,6 +237,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = client.getTickCount();
 		flushPending(tick);
+		incomingByTick.keySet().removeIf(old -> old < tick - 5);
 		closeQuietDespawns(tick);
 		refreshThrall();
 		Player player = client.getLocalPlayer();
@@ -456,7 +458,7 @@ public class CombatLogPlugin extends Plugin
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
 		record = record.withMeta(tick, null, null, weapon, false, burn ? DamageSource.BURN : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick && !recentAttack, weapon, killed, specMarker.serial()));
+		pending.add(new PendingHit(tick, record, npcIndex, burn, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
 		lastHitTick = tick;
 	}
 
@@ -564,6 +566,10 @@ public class CombatLogPlugin extends Plugin
 		else if (record.getSource() == DamageSource.WEAPON)
 		{
 			record = record.withStyle(style);
+		}
+		if (record.getSource() == DamageSource.WEAPON && !record.isMiss() && record.getAmount() > 0)
+		{
+			incomingByTick.computeIfAbsent(tick, key -> new ArrayList<>()).add(record.getAmount());
 		}
 		combatLog.add(record);
 		lastHitTick = tick;
@@ -919,11 +925,12 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = hits.get(0).tick;
 		boolean swung = thrallMax > 0 && thrallNpcId != null;
+		int vengeanceAt = pickVengeance(hits, tick);
 		List<Integer> eligible = new ArrayList<>();
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn)
+			if (hit.burn || i == vengeanceAt)
 			{
 				continue;
 			}
@@ -949,10 +956,10 @@ public class CombatLogPlugin extends Plugin
 			PendingHit hit = hits.get(i);
 			DamageSource source = hit.burn
 				? DamageSource.BURN
-				: i == thrallAt
-					? DamageSource.THRALL
-					: hit.vengeance
-						? DamageSource.VENGEANCE
+				: i == vengeanceAt
+					? DamageSource.VENGEANCE
+					: i == thrallAt
+						? DamageSource.THRALL
 						: DamageSource.WEAPON;
 			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
 			Integer weapon = source == DamageSource.THRALL
@@ -974,6 +981,46 @@ public class CombatLogPlugin extends Plugin
 			}
 			log.debug("{} [{}]", record.describe(), record.getSource());
 		}
+	}
+
+	/**
+	 * The one hit this tick that is vengeance. A hit that matches 75% of damage
+	 * taken wins. Without a match, the first hit on a vengeance tick that has no
+	 * recent attack behind it is used.
+	 */
+	private int pickVengeance(List<PendingHit> hits, int tick)
+	{
+		int[] amounts = new int[hits.size()];
+		boolean[] candidates = new boolean[hits.size()];
+		boolean any = false;
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			amounts[i] = hit.record.getAmount();
+			candidates[i] = !hit.burn && hit.vengeanceTick;
+			any |= candidates[i];
+		}
+		if (!any)
+		{
+			return -1;
+		}
+		List<Integer> incoming = incomingByTick.get(tick);
+		if (incoming != null)
+		{
+			int picked = Vengeance.pick(amounts, candidates, incoming);
+			if (picked >= 0)
+			{
+				return picked;
+			}
+		}
+		for (int i = 0; i < hits.size(); i++)
+		{
+			if (candidates[i] && !hits.get(i).recentAttack)
+			{
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	private static int attackSplats(Integer weaponId, Actor target)
@@ -1009,18 +1056,20 @@ public class CombatLogPlugin extends Plugin
 		private final HitRecord record;
 		private final Integer npcIndex;
 		private final boolean burn;
-		private final boolean vengeance;
+		private final boolean vengeanceTick;
+		private final boolean recentAttack;
 		private final Integer weapon;
 		private final boolean killed;
 		private final int specSerial;
 
-		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeance, Integer weapon, boolean killed, int specSerial)
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial)
 		{
 			this.tick = tick;
 			this.record = record;
 			this.npcIndex = npcIndex;
 			this.burn = burn;
-			this.vengeance = vengeance;
+			this.vengeanceTick = vengeanceTick;
+			this.recentAttack = recentAttack;
 			this.weapon = weapon;
 			this.killed = killed;
 			this.specSerial = specSerial;

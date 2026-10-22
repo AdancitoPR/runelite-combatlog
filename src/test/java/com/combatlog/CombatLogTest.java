@@ -1,6 +1,8 @@
 package com.combatlog;
 
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
@@ -440,7 +442,7 @@ public class CombatLogTest
 	@Test
 	public void lostTicksUseAttackSpeed()
 	{
-		assertEquals(6, FightSummary.lostTicks(java.util.Arrays.asList(
+		assertEquals(6, FightSummary.lostTicks(Arrays.asList(
 			new AttackSwing(0, 1, "Goblin", 1333, 4, 1),
 			new AttackSwing(10, 1, "Goblin", 1333, 4, 2))));
 	}
@@ -532,14 +534,14 @@ public class CombatLogTest
 	{
 		HitRecord first = attackHit(1, 4, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 1);
 		HitRecord second = attackHit(1, 8, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 2);
-		List<AttackRow> rows = AttackRow.group(java.util.Arrays.asList(first, second));
+		List<AttackRow> rows = AttackRow.group(Arrays.asList(first, second));
 		assertEquals(1, rows.size());
 		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
 		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
 
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
-		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
+		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Arrays.asList(max)).get(0)));
 	}
 
 	@Test
@@ -761,6 +763,19 @@ public class CombatLogTest
 		assertEquals(2, fights.size());
 		assertEquals("Best Time 0.6s · 1 kill", FightSummary.pace(fights, "Goblin", TargetKind.NPC));
 		assertEquals("1 kill · avg 0.6s · best 0.6s", FightSummary.groupLine(fights));
+	}
+
+	@Test
+	public void vengeanceIsThreeQuartersOfDamageTaken()
+	{
+		boolean[] both = {true, true};
+		assertEquals(1, Vengeance.pick(new int[] {5, 15}, both, Arrays.asList(20, 8)));
+		assertEquals(0, Vengeance.pick(new int[] {5, 15}, both, Arrays.asList(7)));
+		assertEquals(-1, Vengeance.pick(new int[] {6, 14}, both, Arrays.asList(7)));
+		assertEquals(-1, Vengeance.pick(new int[] {15, 5}, new boolean[] {false, false}, Arrays.asList(20)));
+		assertEquals(1, Vengeance.pick(new int[] {15, 15}, new boolean[] {false, true}, Arrays.asList(20)));
+		assertEquals(-1, Vengeance.pick(new int[] {0, 0}, both, Arrays.asList(1)));
+		assertEquals(-1, Vengeance.pick(new int[] {15}, new boolean[] {true}, Collections.<Integer>emptyList()));
 	}
 
 	private static int countDirection(Fight fight, DamageDirection direction)
