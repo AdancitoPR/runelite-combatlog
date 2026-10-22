@@ -133,6 +133,17 @@ public final class Fight
 		}
 	}
 
+	Fight copy()
+	{
+		Fight copy = new Fight(id, name, kind, npcId, npcIndex, startTick);
+		copy.hits.addAll(hits);
+		copy.attacks.addAll(attacks);
+		copy.endTick = endTick;
+		copy.closed = closed;
+		copy.killed = killed;
+		return copy;
+	}
+
 	void removeHit(HitRecord hit)
 	{
 		hits.remove(hit);

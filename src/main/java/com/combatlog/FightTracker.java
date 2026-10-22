@@ -200,7 +200,7 @@ final class FightTracker
 		{
 			if (!fight.getHits().isEmpty())
 			{
-				copy.add(fight);
+				copy.add(fight.copy());
 			}
 		}
 		copy.sort(Comparator.comparingLong((Fight fight) -> fight.lastTick()).reversed());

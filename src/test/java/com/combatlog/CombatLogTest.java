@@ -715,6 +715,28 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
 	}
 
+	@Test
+	public void snapshotFightsAreNotAffectedByLaterHits()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		CombatSnapshot snapshot = log.summarize(1_000L, 10);
+		Fight fight = snapshot.getFights().get(0);
+		assertEquals(1, fight.getHits().size());
+		assertFalse(fight.isClosed());
+
+		log.add(npcHit(2, "Goblin", 4, 301, 7));
+		log.closeLife(4, 3);
+		assertEquals(1, fight.getHits().size());
+		assertEquals(1, fight.getEndTick());
+		assertFalse(fight.isClosed());
+		assertFalse(fight.isKilled());
+
+		Fight later = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals(2, later.getHits().size());
+		assertTrue(later.isKilled());
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;
