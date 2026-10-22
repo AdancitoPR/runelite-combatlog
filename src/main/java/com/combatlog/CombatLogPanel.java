@@ -870,7 +870,7 @@ class CombatLogPanel extends PluginPanel
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!thrall && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null))
+		if (!thrall && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
 		{
 			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
@@ -1048,6 +1048,10 @@ class CombatLogPanel extends PluginPanel
 		{
 			icons.add(weaponSlot(hit));
 		}
+		else if (hit.getAttackStyleIcon() != null)
+		{
+			icons.add(attackStyleSlot(hit));
+		}
 		if (hit.getPrayerIcon() != null)
 		{
 			if (icons.getComponentCount() > 0)
@@ -1078,6 +1082,33 @@ class CombatLogPanel extends PluginPanel
 			}
 		}
 		String name = hit.getPrayerIcon() == null ? null : OffensivePrayers.name(hit.getPrayerIcon());
+		if (name != null)
+		{
+			icon.setToolTipText(name);
+		}
+		return icon;
+	}
+
+	private JLabel attackStyleSlot(HitRecord hit)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension size = new Dimension(WeaponIcons.SIZE, WeaponIcons.SIZE);
+		icon.setPreferredSize(size);
+		icon.setMinimumSize(size);
+		icon.setMaximumSize(size);
+		Integer spriteId = hit.getAttackStyleIcon();
+		if (prayerIcons != null && spriteId != null)
+		{
+			BufferedImage image = prayerIcons.get(spriteId);
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+		}
+		String name = UnarmedStyle.name(spriteId);
 		if (name != null)
 		{
 			icon.setToolTipText(name);

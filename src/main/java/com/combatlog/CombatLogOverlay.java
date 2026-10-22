@@ -251,11 +251,16 @@ class CombatLogOverlay extends OverlayPanel
 	private BufferedImage weaponIcon(HitRecord hit)
 	{
 		Integer itemId = hit.getWeaponItemId();
-		if (itemId == null)
+		if (itemId != null)
+		{
+			return weaponIcons.get(itemId);
+		}
+		Integer style = hit.getAttackStyleIcon();
+		if (style == null || prayerIcons == null)
 		{
 			return null;
 		}
-		return weaponIcons.get(itemId);
+		return prayerIcons.get(style);
 	}
 
 	/**

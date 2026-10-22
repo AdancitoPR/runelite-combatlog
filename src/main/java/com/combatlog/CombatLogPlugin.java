@@ -42,6 +42,7 @@ import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.callback.ClientThread;
@@ -125,6 +126,10 @@ public class CombatLogPlugin extends Plugin
 	private Integer swingPrayerIndex;
 	@Nullable
 	private Integer swingPrayerIcon;
+	private int swingStyleTick = -1;
+	private Integer swingStyleIndex;
+	@Nullable
+	private Integer swingStyleIcon;
 	private final List<PendingHit> pending = new ArrayList<>();
 	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private int lastHitTick = -100;
@@ -187,6 +192,9 @@ public class CombatLogPlugin extends Plugin
 		swingPrayerTick = -1;
 		swingPrayerIndex = null;
 		swingPrayerIcon = null;
+		swingStyleTick = -1;
+		swingStyleIndex = null;
+		swingStyleIcon = null;
 		lastHitTick = -100;
 		lastSeenWeapon = null;
 		opponentIndex = null;
@@ -315,7 +323,9 @@ public class CombatLogPlugin extends Plugin
 		if (actor == client.getLocalPlayer())
 		{
 			int animation = actor.getAnimation();
-			if (animation <= 0 || animation == 829 || animation == 424)
+			// 829 is a defence flinch. 424 is that flinch too, except while the
+			// unarmed Block style is selected, where 424 is the attack itself.
+			if (animation <= 0 || animation == 829 || (animation == 424 && !unarmedBlockAttack()))
 			{
 				return;
 			}
@@ -336,6 +346,9 @@ public class CombatLogPlugin extends Plugin
 			swingPrayerTick = tick;
 			swingPrayerIndex = index;
 			swingPrayerIcon = offensivePrayerIcon();
+			swingStyleTick = tick;
+			swingStyleIndex = index;
+			swingStyleIcon = weapon == null ? unarmedStyleIcon() : null;
 			specMarker.retarget(index, tick);
 			int reserved = specMarker.reserved(index);
 			playerAttackSplats = Math.max(reserved, attackSplats(weapon, target));
@@ -829,6 +842,40 @@ public class CombatLogPlugin extends Plugin
 		return offensivePrayerIcon();
 	}
 
+	/**
+	 * The punch, kick, or block that was selected when the unarmed swing started.
+	 */
+	@Nullable
+	private Integer styleFromSwing(@Nullable Integer npcIndex, int tick)
+	{
+		if (swingStyleTick >= 0 && tick >= swingStyleTick && tick - swingStyleTick <= 8
+			&& (npcIndex == null || swingStyleIndex == null || npcIndex.equals(swingStyleIndex)))
+		{
+			return swingStyleIcon;
+		}
+		return unarmedStyleIcon();
+	}
+
+	@Nullable
+	private Integer unarmedStyleIcon()
+	{
+		if (client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY) != 0)
+		{
+			return null;
+		}
+		return UnarmedStyle.iconForStyles(weaponStyles(), attackStyle());
+	}
+
+	private boolean unarmedBlockAttack()
+	{
+		if (equippedWeaponId() != null || client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY) != 0)
+		{
+			return false;
+		}
+		Integer icon = unarmedStyleIcon();
+		return icon != null && icon == SpriteID.Combaticons.UNARMED_BLOCK;
+	}
+
 	private boolean playerCasting()
 	{
 		String[] styles = weaponStyles();
@@ -1043,6 +1090,10 @@ public class CombatLogPlugin extends Plugin
 			if (source == DamageSource.WEAPON)
 			{
 				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
+				if (weapon == null)
+				{
+					record = record.withAttackStyle(styleFromSwing(hit.npcIndex, hit.tick));
+				}
 			}
 			if (source == DamageSource.THRALL)
 			{

@@ -718,6 +718,36 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void unarmedStylesUsePunchKickAndBlock()
+	{
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.icon("ACCURATE"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.icon("aggressive"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.icon("DEFENSIVE"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.icon("block"));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.iconForIndex(0));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.iconForIndex(1));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForIndex(2));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForIndex(3));
+		String[] unarmed = {"ACCURATE", "AGGRESSIVE", "OTHER", "DEFENSIVE"};
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_PUNCH), UnarmedStyle.iconForStyles(unarmed, 0));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), UnarmedStyle.iconForStyles(unarmed, 1));
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_BLOCK), UnarmedStyle.iconForStyles(unarmed, 3));
+		assertNull(UnarmedStyle.icon("CASTING"));
+		assertNull(UnarmedStyle.icon(null));
+		assertNull(UnarmedStyle.iconForIndex(4));
+		assertEquals("Punch", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_PUNCH));
+		assertEquals("Kick", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_KICK));
+		assertEquals("Block", UnarmedStyle.name(SpriteID.Combaticons.UNARMED_BLOCK));
+
+		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withAttackStyle(SpriteID.Combaticons.UNARMED_KICK);
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.getAttackStyleIcon());
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.withMeta(2, null, null, null, false, DamageSource.WEAPON, 0, 0).getAttackStyleIcon());
+		assertEquals(Integer.valueOf(SpriteID.Combaticons.UNARMED_KICK), hit.withPrayer(SpriteID.Prayeron.PIETY).getAttackStyleIcon());
+		assertNull(hit.withAttackStyle(0).getAttackStyleIcon());
+		assertNull(hit.withAttackStyle(null).getAttackStyleIcon());
+	}
+
+	@Test
 	public void snapshotFightsAreNotAffectedByLaterHits()
 	{
 		CombatLog log = new CombatLog(10);
