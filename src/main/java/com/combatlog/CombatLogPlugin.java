@@ -5,6 +5,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -15,16 +16,13 @@ import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
-import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
 import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
-import net.runelite.api.ItemID;
 import net.runelite.api.HitsplatID;
-import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
@@ -32,8 +30,7 @@ import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
 import net.runelite.api.Projectile;
 import net.runelite.api.StructComposition;
-import net.runelite.api.VarPlayer;
-import net.runelite.api.Varbits;
+import net.runelite.api.WorldView;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -43,6 +40,10 @@ import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -278,7 +279,7 @@ public class CombatLogPlugin extends Plugin
 		{
 			combatLog.noteCombatTick(tick);
 		}
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			int scale = npc.getHealthScale();
 			int ratio = npc.getHealthRatio();
@@ -341,7 +342,7 @@ public class CombatLogPlugin extends Plugin
 	public void onVarbitChanged(VarbitChanged event)
 	{
 		int tick = client.getTickCount();
-		if (event.getVarpId() == VarPlayer.SPECIAL_ATTACK_PERCENT)
+		if (event.getVarpId() == VarPlayerID.SA_ENERGY)
 		{
 			int current = event.getValue();
 			if (lastSpecPercent >= 0 && current < lastSpecPercent)
@@ -362,7 +363,7 @@ public class CombatLogPlugin extends Plugin
 			}
 			lastSpecPercent = current;
 		}
-		if (event.getVarbitId() == Varbits.VENGEANCE_ACTIVE)
+		if (event.getVarbitId() == VarbitID.VENGEANCE_REBOUND)
 		{
 			int current = event.getValue();
 			if (lastVengeance > 0 && current == 0)
@@ -376,7 +377,7 @@ public class CombatLogPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (event.getContainerId() != InventoryID.EQUIPMENT.getId())
+		if (event.getContainerId() != InventoryID.WORN)
 		{
 			return;
 		}
@@ -652,11 +653,11 @@ public class CombatLogPlugin extends Plugin
 		}
 		boolean aimed = IncomingStyles.aimedAt(
 			projectile.getTargetActor(),
-			projectile.getInteracting(),
+			null,
 			player,
 			projectile.getTargetPoint(),
 			player.getWorldLocation());
-		if (!aimed && !nearPlayer(projectile.getTarget(), player.getLocalLocation()))
+		if (!aimed && !nearPlayer(projectile.getTargetPoint(), player.getWorldLocation()))
 		{
 			return;
 		}
@@ -665,15 +666,26 @@ public class CombatLogPlugin extends Plugin
 		incomingStyles.noteProjectile(index, projectile.getEndCycle(), projectileId, IncomingStyles.isMagicProjectile(projectileId));
 	}
 
-	private static boolean nearPlayer(@Nullable LocalPoint target, @Nullable LocalPoint player)
+	private static boolean nearPlayer(@Nullable WorldPoint target, @Nullable WorldPoint player)
 	{
-		if (target == null || player == null)
+		if (target == null || player == null || target.getPlane() != player.getPlane())
 		{
 			return false;
 		}
 		int dx = Math.abs(target.getX() - player.getX());
 		int dy = Math.abs(target.getY() - player.getY());
-		return Math.max(dx, dy) <= 256;
+		return Math.max(dx, dy) <= 2;
+	}
+
+	/** The top level world view is missing around state changes, which reads as no NPCs. */
+	private Iterable<? extends NPC> npcs()
+	{
+		WorldView worldView = client.getTopLevelWorldView();
+		if (worldView == null)
+		{
+			return Collections.<NPC>emptyList();
+		}
+		return worldView.npcs();
 	}
 
 	private NPC interactingNpc()
@@ -699,7 +711,7 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		NPC found = null;
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (npc.getInteracting() != player || isThrall(npc))
 			{
@@ -721,7 +733,7 @@ public class CombatLogPlugin extends Plugin
 		{
 			return null;
 		}
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (npc.getIndex() == index)
 			{
@@ -825,12 +837,12 @@ public class CombatLogPlugin extends Plugin
 
 	private int attackStyle()
 	{
-		return client.getVarpValue(VarPlayer.ATTACK_STYLE);
+		return client.getVarpValue(VarPlayerID.COM_MODE);
 	}
 
 	private int defensiveCasting()
 	{
-		return client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
+		return client.getVarbitValue(VarbitID.AUTOCAST_DEFMODE);
 	}
 
 	@Nullable
@@ -838,7 +850,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		try
 		{
-			int weaponType = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+			int weaponType = client.getVarbitValue(VarbitID.COMBAT_WEAPON_CATEGORY);
 			EnumComposition weapons = client.getEnum(EnumID.WEAPON_STYLES);
 			if (weapons == null)
 			{
@@ -871,7 +883,7 @@ public class CombatLogPlugin extends Plugin
 
 	private Integer equippedWeaponId()
 	{
-		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
 		if (equipment == null)
 		{
 			return null;
@@ -900,7 +912,7 @@ public class CombatLogPlugin extends Plugin
 
 	private void refreshThrall()
 	{
-		for (NPC npc : client.getNpcs())
+		for (NPC npc : npcs())
 		{
 			if (!isThrall(npc))
 			{
