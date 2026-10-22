@@ -91,6 +91,31 @@ final class FightTracker
 		lastClosed.put(key, fight);
 	}
 
+	/**
+	 * Closes the life without a kill, for an NPC that left the scene while
+	 * still alive. It does not count toward kills or best times.
+	 */
+	void closeQuiet(@Nullable Integer npcIndex, int tick)
+	{
+		if (npcIndex == null)
+		{
+			return;
+		}
+		if (tick > lastTick)
+		{
+			lastTick = tick;
+		}
+		String key = npcKey(npcIndex);
+		Fight fight = open.get(key);
+		if (fight == null || fight.isClosed())
+		{
+			return;
+		}
+		fight.closeQuiet(fight.lastTick());
+		open.remove(key);
+		lastClosed.put(key, fight);
+	}
+
 	void noteForm(@Nullable Integer npcIndex, int npcId)
 	{
 		if (npcIndex == null)

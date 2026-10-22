@@ -70,6 +70,14 @@ public class CombatLog
 		}
 	}
 
+	public void closeQuiet(@Nullable Integer npcIndex, int tick)
+	{
+		synchronized (lock)
+		{
+			fights.closeQuiet(npcIndex, tick);
+		}
+	}
+
 	public void noteForm(@Nullable Integer npcIndex, int npcId)
 	{
 		synchronized (lock)

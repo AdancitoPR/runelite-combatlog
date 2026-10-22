@@ -103,6 +103,7 @@ public class CombatLogPlugin extends Plugin
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
+	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
 	private int vengeanceClearedTick = -1;
@@ -235,6 +236,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = client.getTickCount();
 		flushPending(tick);
+		closeQuietDespawns(tick);
 		refreshThrall();
 		Player player = client.getLocalPlayer();
 		boolean interacting = player != null && player.getInteracting() != null;
@@ -360,8 +362,33 @@ public class CombatLogPlugin extends Plugin
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned event)
 	{
-		combatLog.closeLife(event.getNpc().getIndex(), client.getTickCount());
-		lastHealth.remove(event.getNpc().getIndex());
+		NPC npc = event.getNpc();
+		int index = npc.getIndex();
+		int tick = client.getTickCount();
+		if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
+		{
+			combatLog.closeLife(index, tick);
+		}
+		else
+		{
+			// Hits from this tick are still pending, so the quiet close waits for them.
+			quietDespawns.put(index, tick);
+		}
+		lastHealth.remove(index);
+	}
+
+	private void closeQuietDespawns(int currentTick)
+	{
+		Iterator<Map.Entry<Integer, Integer>> iterator = quietDespawns.entrySet().iterator();
+		while (iterator.hasNext())
+		{
+			Map.Entry<Integer, Integer> entry = iterator.next();
+			if (entry.getValue() < currentTick)
+			{
+				combatLog.closeQuiet(entry.getKey(), entry.getValue());
+				iterator.remove();
+			}
+		}
 	}
 
 	@Subscribe

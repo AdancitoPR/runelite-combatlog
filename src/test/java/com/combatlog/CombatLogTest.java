@@ -737,6 +737,32 @@ public class CombatLogTest
 		assertTrue(later.isKilled());
 	}
 
+	@Test
+	public void despawnedFightIsClosedWithoutACount()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(3, "Goblin", 4, 301, 8));
+		log.closeQuiet(4, 9);
+		assertNull(log.currentNpc(4, 9));
+
+		List<Fight> fights = log.summarize(9_000L, 10).getFights();
+		assertEquals(1, fights.size());
+		assertTrue(fights.get(0).isClosed());
+		assertFalse(fights.get(0).isKilled());
+		assertEquals(3, fights.get(0).getEndTick());
+		assertNull(FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+		assertEquals("1 fight", FightSummary.groupLine(fights));
+		assertNull(log.summarize(9_000L, 10).getTargets().get(0).getPace());
+
+		log.add(npcHit(5, "Goblin", 4, 301, 6));
+		log.closeLife(4, 6);
+		fights = log.summarize(9_000L, 10).getFights();
+		assertEquals(2, fights.size());
+		assertEquals("Best Time 0.6s · 1 kill", FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+		assertEquals("1 kill · avg 0.6s · best 0.6s", FightSummary.groupLine(fights));
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;
