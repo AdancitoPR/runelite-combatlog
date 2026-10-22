@@ -11,6 +11,9 @@ import javax.annotation.Nullable;
  */
 public final class SpecMarker
 {
+	/** Ticks an armed spec waits for its hitsplats before it is dropped. */
+	static final int SPEC_WINDOW = 10;
+
 	@Nullable
 	private Integer npcIndex;
 	private int remaining;
@@ -36,6 +39,25 @@ public final class SpecMarker
 			return;
 		}
 		this.npcIndex = npcIndex;
+	}
+
+	/**
+	 * Drops an armed spec whose hitsplats never arrived, such as a spec that
+	 * missed entirely or hit a target that was not tracked.
+	 */
+	public void expire(int tick)
+	{
+		if (remaining > 0 && armTick >= 0 && tick - armTick > SPEC_WINDOW)
+		{
+			remaining = 0;
+		}
+	}
+
+	public void reset()
+	{
+		npcIndex = null;
+		remaining = 0;
+		armTick = -1;
 	}
 
 	public int serial()

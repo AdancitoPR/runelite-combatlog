@@ -1,10 +1,12 @@
 package com.combatlog;
 
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
-import net.runelite.api.SpriteID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
@@ -440,7 +442,7 @@ public class CombatLogTest
 	@Test
 	public void lostTicksUseAttackSpeed()
 	{
-		assertEquals(6, FightSummary.lostTicks(java.util.Arrays.asList(
+		assertEquals(6, FightSummary.lostTicks(Arrays.asList(
 			new AttackSwing(0, 1, "Goblin", 1333, 4, 1),
 			new AttackSwing(10, 1, "Goblin", 1333, 4, 2))));
 	}
@@ -496,6 +498,8 @@ public class CombatLogTest
 		assertEquals("42 (6 overkill)", CombatLogFormatter.amountLabel(fight.getHits().get(0)));
 		assertEquals(6, Overkill.amount(42, 30, 30, 36, true));
 		assertEquals(0, Overkill.amount(42, 30, 30, -1, true));
+		assertEquals(0, Overkill.amount(42, 30, 30, (Integer) null, true));
+		assertEquals(6, Overkill.amount(42, 30, 30, Integer.valueOf(36), true));
 	}
 
 	@Test
@@ -530,14 +534,14 @@ public class CombatLogTest
 	{
 		HitRecord first = attackHit(1, 4, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 1);
 		HitRecord second = attackHit(1, 8, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 2);
-		List<AttackRow> rows = AttackRow.group(java.util.Arrays.asList(first, second));
+		List<AttackRow> rows = AttackRow.group(Arrays.asList(first, second));
 		assertEquals(1, rows.size());
 		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
 		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
 
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
-		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(java.util.Arrays.asList(max)).get(0)));
+		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Arrays.asList(max)).get(0)));
 	}
 
 	@Test
@@ -692,7 +696,7 @@ public class CombatLogTest
 	{
 		OffensivePrayers.Icon piety = OffensivePrayers.active(prayer -> prayer == Prayer.PIETY);
 		assertEquals("Piety", piety.getName());
-		assertEquals(SpriteID.PRAYER_PIETY, piety.getSpriteId());
+		assertEquals(SpriteID.Prayeron.PIETY, piety.getSpriteId());
 		assertEquals("Piety", OffensivePrayers.name(piety.getSpriteId()));
 
 		OffensivePrayers.Icon strength = OffensivePrayers.active(prayer ->
@@ -707,10 +711,253 @@ public class CombatLogTest
 		assertNull(OffensivePrayers.active(prayer -> false));
 
 		HitRecord hit = npcHit(1, "Goblin", 4, 301, 10).withPrayer(piety.getSpriteId());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.getPrayerIcon());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
 		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
-		assertEquals(Integer.valueOf(SpriteID.PRAYER_PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+	}
+
+	@Test
+	public void snapshotFightsAreNotAffectedByLaterHits()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		CombatSnapshot snapshot = log.summarize(1_000L, 10);
+		Fight fight = snapshot.getFights().get(0);
+		assertEquals(1, fight.getHits().size());
+		assertFalse(fight.isClosed());
+
+		log.add(npcHit(2, "Goblin", 4, 301, 7));
+		log.closeLife(4, 3);
+		assertEquals(1, fight.getHits().size());
+		assertEquals(1, fight.getEndTick());
+		assertFalse(fight.isClosed());
+		assertFalse(fight.isKilled());
+
+		Fight later = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals(2, later.getHits().size());
+		assertTrue(later.isKilled());
+	}
+
+	@Test
+	public void despawnedFightIsClosedWithoutACount()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(3, "Goblin", 4, 301, 8));
+		log.closeQuiet(4, 9);
+		assertNull(log.currentNpc(4, 9));
+
+		List<Fight> fights = log.summarize(9_000L, 10).getFights();
+		assertEquals(1, fights.size());
+		assertTrue(fights.get(0).isClosed());
+		assertFalse(fights.get(0).isKilled());
+		assertEquals(3, fights.get(0).getEndTick());
+		assertNull(FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+		assertEquals("1 fight", FightSummary.groupLine(fights));
+		assertNull(log.summarize(9_000L, 10).getTargets().get(0).getPace());
+
+		log.add(npcHit(5, "Goblin", 4, 301, 6));
+		log.closeLife(4, 6);
+		fights = log.summarize(9_000L, 10).getFights();
+		assertEquals(2, fights.size());
+		assertEquals("Best Time 0.6s · 1 kill", FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+		assertEquals("1 kill · avg 0.6s · best 0.6s", FightSummary.groupLine(fights));
+	}
+
+	@Test
+	public void vengeanceIsThreeQuartersOfDamageTaken()
+	{
+		boolean[] both = {true, true};
+		assertEquals(1, Vengeance.pick(new int[] {5, 15}, both, Arrays.asList(20, 8)));
+		assertEquals(0, Vengeance.pick(new int[] {5, 15}, both, Arrays.asList(7)));
+		assertEquals(-1, Vengeance.pick(new int[] {6, 14}, both, Arrays.asList(7)));
+		assertEquals(-1, Vengeance.pick(new int[] {15, 5}, new boolean[] {false, false}, Arrays.asList(20)));
+		assertEquals(1, Vengeance.pick(new int[] {15, 15}, new boolean[] {false, true}, Arrays.asList(20)));
+		assertEquals(-1, Vengeance.pick(new int[] {0, 0}, both, Arrays.asList(1)));
+		assertEquals(-1, Vengeance.pick(new int[] {15}, new boolean[] {true}, Collections.<Integer>emptyList()));
+	}
+
+	@Test
+	public void armedSpecExpiresWhenNoHitsplatClaimsIt()
+	{
+		SpecMarker marker = new SpecMarker();
+		marker.arm(1, 13652, 5);
+		int serial = marker.serial();
+		assertTrue(serial != 0);
+		marker.expire(5 + SpecMarker.SPEC_WINDOW);
+		assertEquals(serial, marker.serial());
+		assertEquals(4, marker.reserved(1));
+
+		marker.expire(5 + SpecMarker.SPEC_WINDOW + 1);
+		assertEquals(0, marker.serial());
+		assertEquals(0, marker.reserved(1));
+		assertFalse(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(1, 1333, 40);
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, marker.serial()));
+		marker.expire(100);
+		assertEquals(0, marker.serial());
+	}
+
+	@Test
+	public void fightOwnershipIsKnownForNpcsYouAttacked()
+	{
+		CombatLog log = new CombatLog(10);
+		assertNull(log.currentNpc(4, 5));
+		assertFalse(log.hasRecentAttack(4, 5));
+
+		log.noteAttack(5, 4, "Goblin", 1333, 4);
+		assertTrue(log.hasRecentAttack(4, 5));
+		assertFalse(log.hasRecentAttack(7, 5));
+		assertNull(log.currentNpc(4, 5));
+
+		log.add(npcHit(5, "Goblin", 4, 301, 10));
+		assertEquals(Integer.valueOf(4), log.currentNpc(4, 6));
+		assertNull(log.currentNpc(7, 6));
+	}
+
+	@Test
+	public void fallbackDpsExcludesOverkill()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(0L, "Goblin", TargetKind.NPC, 301, 4, null, 42, HitKind.HIT, null, 0, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 6, null, null, 0));
+		CombatSnapshot snapshot = log.summarize(10_000L, 10);
+		assertEquals(42, snapshot.getTotalDamage());
+		assertEquals(3.6, snapshot.getSessionDps(), 0.0001);
+	}
+
+	@Test
+	public void closeAllQuietEndsOpenNpcFightsWithoutKills()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.closeLife(4, 2);
+		log.add(npcHit(10, "Goblin", 5, 301, 10));
+		log.add(npcHit(12, "Bear", 6, 105, 7));
+		log.add(hit(13_000L, "Zezima", TargetKind.PLAYER, 5, HitKind.HIT));
+		log.closeAllQuiet(20);
+
+		assertNull(log.currentNpc(5, 20));
+		assertNull(log.currentNpc(6, 20));
+		List<Fight> fights = log.summarize(20_000L, 10).getFights();
+		assertEquals(4, fights.size());
+		int killed = 0;
+		for (Fight fight : fights)
+		{
+			if (fight.getKind() == TargetKind.NPC)
+			{
+				assertTrue(fight.isClosed());
+			}
+			else
+			{
+				assertFalse(fight.isClosed());
+			}
+			killed += fight.isKilled() ? 1 : 0;
+		}
+		assertEquals(1, killed);
+		assertEquals("Best Time 0.6s · 1 kill", FightSummary.pace(fights, "Goblin", TargetKind.NPC));
+
+		log.add(npcHit(25, "Goblin", 5, 301, 4));
+		assertEquals(5, log.summarize(25_000L, 10).getFights().size());
+	}
+
+	@Test
+	public void versionChangesOnlyWhenTheLogChanges()
+	{
+		CombatLog log = new CombatLog(10);
+		int start = log.version();
+		log.summarize(1_000L, 10);
+		assertEquals(start, log.version());
+
+		log.noteAttack(1, 4, "Goblin", 1333, 4);
+		int afterAttack = log.version();
+		assertTrue(afterAttack != start);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		int afterHit = log.version();
+		assertTrue(afterHit != afterAttack);
+		log.noteCombatTick(2);
+		assertTrue(log.version() != afterHit);
+		int afterTick = log.version();
+		log.closeLife(4, 3);
+		assertTrue(log.version() != afterTick);
+		int afterClose = log.version();
+		log.clear();
+		assertTrue(log.version() != afterClose);
+	}
+
+	@Test
+	public void sessionDpsIsUnchangedWhenOldHitsAreTrimmed()
+	{
+		CombatLog log = new CombatLog(3);
+		for (int tick = 1; tick <= 12; tick++)
+		{
+			log.noteCombatTick(tick);
+		}
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(2, "Goblin", 4, 301, 10));
+		log.add(npcHit(3, "Goblin", 4, 301, 10));
+		log.add(npcHit(4, "Goblin", 4, 301, 10));
+		log.add(npcHit(5, "Goblin", 4, 301, 10));
+		// Incoming hits are logged a tick ahead of outgoing ones, so ticks interleave.
+		log.add(incoming(7, "Goblin", 4, 301, 3));
+		log.add(npcHit(6, "Goblin", 4, 301, 10));
+		CombatSnapshot snapshot = log.summarize(12_000L, 10);
+		// Kept: outgoing 5, incoming 7, outgoing 6. Oldest retained tick is 5, so ticks 5 to 12.
+		assertEquals(20, snapshot.getTotalDamage());
+		assertEquals(20 / (8 * FightSummary.TICK_SECONDS), snapshot.getSessionDps(), 0.0001);
+	}
+
+	@Test
+	public void trackerPrunesOldCombatTicksAndStaleSwings()
+	{
+		FightTracker tracker = new FightTracker();
+		for (int tick = 1; tick <= 10; tick++)
+		{
+			tracker.noteCombatTick(tick);
+		}
+		assertEquals(10, tracker.activeTickCount(0));
+		assertEquals(4, tracker.activeTickCount(7));
+		tracker.pruneTicksBefore(5);
+		assertEquals(6, tracker.activeTickCount(0));
+		assertEquals(4, tracker.activeTickCount(7));
+
+		tracker.noteAttack(new AttackSwing(1, 4, "Goblin", 1333, 4, 0));
+		tracker.noteAttack(new AttackSwing(5, 4, "Goblin", 1333, 4, 0));
+		assertEquals(2, tracker.queuedSize());
+		tracker.noteAttack(new AttackSwing(10, 4, "Goblin", 1333, 4, 0));
+		assertEquals(2, tracker.queuedSize());
+		tracker.noteAttack(new AttackSwing(20, 4, "Goblin", 1333, 4, 0));
+		assertEquals(1, tracker.queuedSize());
+		assertFalse(tracker.hasRecentAttack(4, 15));
+		assertTrue(tracker.hasRecentAttack(4, 21));
+	}
+
+	@Test
+	public void monsterIconsAreNotRequestedWhenDisabled() throws Exception
+	{
+		java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+		okhttp3.OkHttpClient http = new okhttp3.OkHttpClient.Builder()
+			.addInterceptor(chain ->
+			{
+				requests.incrementAndGet();
+				throw new java.io.IOException("offline");
+			})
+			.build();
+		MonsterIcons icons = new MonsterIcons(http);
+		icons.setEnabled(false);
+		assertNull(icons.get(301));
+		assertNull(icons.get(301));
+		Thread.sleep(300);
+		assertEquals(0, requests.get());
+
+		icons.setEnabled(true);
+		assertNull(icons.get(301));
+		for (int i = 0; i < 40 && requests.get() == 0; i++)
+		{
+			Thread.sleep(50);
+		}
+		assertEquals(1, requests.get());
 	}
 
 	private static int countDirection(Fight fight, DamageDirection direction)
