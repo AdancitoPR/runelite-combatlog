@@ -12,6 +12,7 @@ import java.lang.reflect.Proxy;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
@@ -105,6 +106,26 @@ public class CombatLogPanelTest
 	}
 
 	@Test
+	public void plusOnAGroupedFightOpensThatKill() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(new HitRecord(1_000L, "Bear", TargetKind.NPC, 105, 1, null, 27, HitKind.HIT, null));
+			log.closeLife(1, 8);
+			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			assertEquals(1, countLabels(panel, "+"));
+			click(findLabel(panel, "+"));
+			assertEquals(1, countLabels(panel, "+"));
+			click(findLabel(panel, "+"));
+			assertEquals(0, countLabels(panel, "+"));
+			assertEquals(2, countLabels(panel, "-"));
+		});
+	}
+
+	@Test
 	public void interactionDoesNotResizeSidebarOrCoverIcons() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->
@@ -193,6 +214,46 @@ public class CombatLogPanelTest
 		assertTrue(interaction + " collapsed an icon tab " + tab, tab != null && tab.width > 8 && tab.height > 8);
 		assertTrue(interaction + " covered icons " + tab + " content " + wrapped.getBounds(),
 			tab.x >= wrapped.getX() + wrapped.getWidth() - 2);
+	}
+
+	private static void click(JLabel label)
+	{
+		label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1));
+	}
+
+	private static JLabel findLabel(Component component, String text)
+	{
+		if (component instanceof JLabel && text.equals(((JLabel) component).getText()))
+		{
+			return (JLabel) component;
+		}
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				JLabel found = findLabel(container.getComponent(i), text);
+				if (found != null)
+				{
+					return found;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static int countLabels(Component component, String text)
+	{
+		int count = component instanceof JLabel && text.equals(((JLabel) component).getText()) ? 1 : 0;
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				count += countLabels(container.getComponent(i), text);
+			}
+		}
+		return count;
 	}
 
 	private static JButton findButton(Component component, String text)
