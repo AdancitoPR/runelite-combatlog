@@ -862,6 +862,77 @@ public class CombatLogTest
 		assertEquals(5, log.summarize(25_000L, 10).getFights().size());
 	}
 
+	@Test
+	public void versionChangesOnlyWhenTheLogChanges()
+	{
+		CombatLog log = new CombatLog(10);
+		int start = log.version();
+		log.summarize(1_000L, 10);
+		assertEquals(start, log.version());
+
+		log.noteAttack(1, 4, "Goblin", 1333, 4);
+		int afterAttack = log.version();
+		assertTrue(afterAttack != start);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		int afterHit = log.version();
+		assertTrue(afterHit != afterAttack);
+		log.noteCombatTick(2);
+		assertTrue(log.version() != afterHit);
+		int afterTick = log.version();
+		log.closeLife(4, 3);
+		assertTrue(log.version() != afterTick);
+		int afterClose = log.version();
+		log.clear();
+		assertTrue(log.version() != afterClose);
+	}
+
+	@Test
+	public void sessionDpsIsUnchangedWhenOldHitsAreTrimmed()
+	{
+		CombatLog log = new CombatLog(3);
+		for (int tick = 1; tick <= 12; tick++)
+		{
+			log.noteCombatTick(tick);
+		}
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(2, "Goblin", 4, 301, 10));
+		log.add(npcHit(3, "Goblin", 4, 301, 10));
+		log.add(npcHit(4, "Goblin", 4, 301, 10));
+		log.add(npcHit(5, "Goblin", 4, 301, 10));
+		// Incoming hits are logged a tick ahead of outgoing ones, so ticks interleave.
+		log.add(incoming(7, "Goblin", 4, 301, 3));
+		log.add(npcHit(6, "Goblin", 4, 301, 10));
+		CombatSnapshot snapshot = log.summarize(12_000L, 10);
+		// Kept: outgoing 5, incoming 7, outgoing 6. Oldest retained tick is 5, so ticks 5 to 12.
+		assertEquals(20, snapshot.getTotalDamage());
+		assertEquals(20 / (8 * FightSummary.TICK_SECONDS), snapshot.getSessionDps(), 0.0001);
+	}
+
+	@Test
+	public void trackerPrunesOldCombatTicksAndStaleSwings()
+	{
+		FightTracker tracker = new FightTracker();
+		for (int tick = 1; tick <= 10; tick++)
+		{
+			tracker.noteCombatTick(tick);
+		}
+		assertEquals(10, tracker.activeTickCount(0));
+		assertEquals(4, tracker.activeTickCount(7));
+		tracker.pruneTicksBefore(5);
+		assertEquals(6, tracker.activeTickCount(0));
+		assertEquals(4, tracker.activeTickCount(7));
+
+		tracker.noteAttack(new AttackSwing(1, 4, "Goblin", 1333, 4, 0));
+		tracker.noteAttack(new AttackSwing(5, 4, "Goblin", 1333, 4, 0));
+		assertEquals(2, tracker.queuedSize());
+		tracker.noteAttack(new AttackSwing(10, 4, "Goblin", 1333, 4, 0));
+		assertEquals(2, tracker.queuedSize());
+		tracker.noteAttack(new AttackSwing(20, 4, "Goblin", 1333, 4, 0));
+		assertEquals(1, tracker.queuedSize());
+		assertFalse(tracker.hasRecentAttack(4, 15));
+		assertTrue(tracker.hasRecentAttack(4, 21));
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

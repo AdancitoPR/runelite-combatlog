@@ -163,6 +163,8 @@ final class FightTracker
 		{
 			lastTick = swing.getTick();
 		}
+		int oldest = swing.getTick() - WEAPON_WINDOW;
+		queued.removeIf(old -> old.getTick() < oldest);
 		Fight fight = swing.getNpcIndex() != null ? open.get(npcKey(swing.getNpcIndex())) : open.get(playerKey(swing.getName()));
 		if (fight != null && !fight.isClosed())
 		{
@@ -231,15 +233,17 @@ final class FightTracker
 
 	int activeTickCount(int oldestTick)
 	{
-		int count = 0;
-		for (int tick : activeTicks)
-		{
-			if (oldestTick <= 0 || tick >= oldestTick)
-			{
-				count++;
-			}
-		}
-		return count;
+		return oldestTick <= 0 ? activeTicks.size() : activeTicks.tailSet(oldestTick).size();
+	}
+
+	void pruneTicksBefore(int tick)
+	{
+		activeTicks.headSet(tick).clear();
+	}
+
+	int queuedSize()
+	{
+		return queued.size();
 	}
 
 	List<Fight> fights()

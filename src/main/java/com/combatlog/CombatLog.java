@@ -22,6 +22,7 @@ public class CombatLog
 	private final FightTracker fights = new FightTracker();
 	private List<HitRecord> hits = Collections.emptyList();
 	private int maxEntries;
+	private int version;
 
 	public CombatLog()
 	{
@@ -37,6 +38,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			HitRecord stored = fights.accept(record);
 			List<HitRecord> next = new ArrayList<>(Math.min(hits.size() + 1, maxEntries));
 			next.add(stored);
@@ -50,6 +52,15 @@ public class CombatLog
 				fights.forget(hits.get(i));
 			}
 			hits = Collections.unmodifiableList(next);
+			if (hits.size() > keep)
+			{
+				// The list is not strictly in tick order, so keep a little before the oldest tick.
+				int oldest = oldestTick(hits);
+				if (oldest > 0)
+				{
+					fights.pruneTicksBefore(oldest - 2);
+				}
+			}
 		}
 	}
 
@@ -66,6 +77,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.closeLife(npcIndex, tick);
 		}
 	}
@@ -74,6 +86,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.closeQuiet(npcIndex, tick);
 		}
 	}
@@ -82,6 +95,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.closeAllQuiet(tick);
 		}
 	}
@@ -90,6 +104,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.noteForm(npcIndex, npcId);
 		}
 	}
@@ -98,6 +113,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.noteAttack(new AttackSwing(tick, npcIndex, name, weaponItemId, speed, 0));
 		}
 	}
@@ -106,6 +122,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.noteAttack(swing);
 		}
 	}
@@ -123,6 +140,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.retargetWeapon(tick, npcIndex, weaponItemId, speed);
 		}
 	}
@@ -139,6 +157,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			fights.noteCombatTick(tick);
 		}
 	}
@@ -147,6 +166,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			hits = Collections.emptyList();
 			fights.clear();
 		}
@@ -156,6 +176,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			List<HitRecord> next = new ArrayList<>();
 			for (HitRecord hit : hits)
 			{
@@ -173,6 +194,7 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
+			version++;
 			this.maxEntries = Math.max(1, maxEntries);
 			if (hits.size() > this.maxEntries)
 			{
@@ -182,6 +204,18 @@ public class CombatLog
 				}
 				hits = Collections.unmodifiableList(new ArrayList<>(hits.subList(0, this.maxEntries)));
 			}
+		}
+	}
+
+	/**
+	 * Changes whenever the log or its fights change, so a caller can reuse a
+	 * snapshot until it does. Time based fields still need a fresh summary.
+	 */
+	public int version()
+	{
+		synchronized (lock)
+		{
+			return version;
 		}
 	}
 
@@ -201,16 +235,7 @@ public class CombatLog
 			current = hits;
 			fightList = fights.fights();
 			nowTick = fights.getLastTick();
-			int oldestTick = 0;
-			for (int i = current.size() - 1; i >= 0; i--)
-			{
-				if (current.get(i).getTick() > 0)
-				{
-					oldestTick = current.get(i).getTick();
-					break;
-				}
-			}
-			activeTicks = fights.activeTickCount(oldestTick);
+			activeTicks = fights.activeTickCount(oldestTick(current));
 		}
 
 		DamageView shown = view == null ? DamageView.OUTGOING : view;
@@ -363,6 +388,18 @@ public class CombatLog
 			incomingHits,
 			shown,
 			nowTick);
+	}
+
+	private static int oldestTick(List<HitRecord> hits)
+	{
+		for (int i = hits.size() - 1; i >= 0; i--)
+		{
+			if (hits.get(i).getTick() > 0)
+			{
+				return hits.get(i).getTick();
+			}
+		}
+		return 0;
 	}
 
 	private static int countTargetAttacks(List<HitRecord> hits, String name, TargetKind kind)
