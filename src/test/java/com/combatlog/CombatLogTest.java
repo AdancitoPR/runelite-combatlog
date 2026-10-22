@@ -778,6 +778,28 @@ public class CombatLogTest
 		assertEquals(-1, Vengeance.pick(new int[] {15}, new boolean[] {true}, Collections.<Integer>emptyList()));
 	}
 
+	@Test
+	public void armedSpecExpiresWhenNoHitsplatClaimsIt()
+	{
+		SpecMarker marker = new SpecMarker();
+		marker.arm(1, 13652, 5);
+		int serial = marker.serial();
+		assertTrue(serial != 0);
+		marker.expire(5 + SpecMarker.SPEC_WINDOW);
+		assertEquals(serial, marker.serial());
+		assertEquals(4, marker.reserved(1));
+
+		marker.expire(5 + SpecMarker.SPEC_WINDOW + 1);
+		assertEquals(0, marker.serial());
+		assertEquals(0, marker.reserved(1));
+		assertFalse(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(1, 1333, 40);
+		assertTrue(marker.claim(1, DamageDirection.OUTGOING, DamageSource.WEAPON, marker.serial()));
+		marker.expire(100);
+		assertEquals(0, marker.serial());
+	}
+
 	private static int countDirection(Fight fight, DamageDirection direction)
 	{
 		int count = 0;

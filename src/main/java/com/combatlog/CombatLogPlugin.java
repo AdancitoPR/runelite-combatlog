@@ -237,6 +237,7 @@ public class CombatLogPlugin extends Plugin
 	{
 		int tick = client.getTickCount();
 		flushPending(tick);
+		specMarker.expire(tick);
 		incomingByTick.keySet().removeIf(old -> old < tick - 5);
 		closeQuietDespawns(tick);
 		refreshThrall();
