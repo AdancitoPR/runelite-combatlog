@@ -99,11 +99,24 @@ public interface CombatLogConfig extends Config
 		return DamageAmount.NUMBER;
 	}
 
+	@Range(min = 0, max = 10)
+	@ConfigItem(
+		keyName = "openFights",
+		name = "Open fights",
+		description = "How many of the newest fights stay open. Older fights start collapsed. 0 keeps every fight collapsed.",
+		position = 8,
+		section = logSection
+	)
+	default int openFights()
+	{
+		return 1;
+	}
+
 	@ConfigItem(
 		keyName = "monsterIcons",
 		name = "Download monster icons",
 		description = "Loads NPC pictures from chisel.weirdgloop.org (OSRS Wiki). Sends the NPC id to that site.",
-		position = 8,
+		position = 9,
 		section = logSection
 	)
 	default boolean monsterIcons()
