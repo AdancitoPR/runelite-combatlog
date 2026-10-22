@@ -44,6 +44,7 @@ import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -102,6 +103,9 @@ public class CombatLogPlugin extends Plugin
 	@Inject
 	private MonsterIcons monsterIcons;
 
+	@Inject
+	private ClientThread clientThread;
+
 	private NavigationButton navButton;
 	private volatile boolean running;
 	private final AtomicBoolean refreshQueued = new AtomicBoolean();
@@ -149,7 +153,8 @@ public class CombatLogPlugin extends Plugin
 	protected void shutDown()
 	{
 		running = false;
-		resetState();
+		// The handlers that use this state run on the client thread, and one may still be running.
+		clientThread.invokeLater(this::resetState);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
