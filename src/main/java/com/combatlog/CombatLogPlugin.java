@@ -334,6 +334,10 @@ public class CombatLogPlugin extends Plugin
 			{
 				return;
 			}
+			if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
+			{
+				return;
+			}
 			Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
 			if (target instanceof NPC && !isThrall((NPC) target))
 			{
@@ -483,6 +487,10 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (ObjectFilter.ignored(npcId, npc.getName()))
+			{
+				return;
+			}
 			if (status != null && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
 			{
 				// Burn, poison, or venom on an NPC you are not fighting is someone else's.
@@ -582,11 +590,29 @@ public class CombatLogPlugin extends Plugin
 	private void recordIncoming(HitsplatApplied event, int tick)
 	{
 		NPC interacting = interactingNpc();
+		if (ignoredNpc(interacting))
+		{
+			interacting = null;
+		}
+		Integer projectileIndex = incomingStyles.attackerIndex(client.getGameCycle());
+		if (ignoredIndex(projectileIndex))
+		{
+			projectileIndex = null;
+		}
+		Integer openIndex = combatLog.currentNpc(opponentIndex, tick);
+		if (ignoredIndex(openIndex))
+		{
+			openIndex = null;
+		}
 		NPC aggro = soleAggro();
+		if (ignoredNpc(aggro))
+		{
+			aggro = null;
+		}
 		Integer index = IncomingTarget.index(
 			interacting == null ? null : interacting.getIndex(),
-			incomingStyles.attackerIndex(client.getGameCycle()),
-			combatLog.currentNpc(opponentIndex, tick),
+			projectileIndex,
+			openIndex,
 			aggro == null ? null : aggro.getIndex());
 		NPC attacker = npcByIndex(index);
 		String name;
@@ -667,10 +693,18 @@ public class CombatLogPlugin extends Plugin
 			if (source == player && spellProjectile())
 			{
 				Actor target = projectile.getTargetActor();
+				if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
+				{
+					return;
+				}
 				Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
 				if (index == null)
 				{
 					Actor interacting = player.getInteracting();
+					if (interacting instanceof NPC && ObjectFilter.ignored(npcId((NPC) interacting), interacting.getName()))
+					{
+						return;
+					}
 					index = interacting instanceof NPC ? ((NPC) interacting).getIndex() : null;
 				}
 				incomingStyles.notePlayerSpell(index, projectile.getEndCycle());
@@ -678,7 +712,7 @@ public class CombatLogPlugin extends Plugin
 			return;
 		}
 		NPC npc = source instanceof NPC ? (NPC) source : null;
-		if (npc != null && isThrall(npc))
+		if (npc != null && (isThrall(npc) || ObjectFilter.ignored(npcId(npc), npc.getName())))
 		{
 			return;
 		}
@@ -959,6 +993,16 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		return weapon.getId();
+	}
+
+	private boolean ignoredNpc(@Nullable NPC npc)
+	{
+		return npc != null && ObjectFilter.ignored(npcId(npc), npc.getName());
+	}
+
+	private boolean ignoredIndex(@Nullable Integer index)
+	{
+		return ignoredNpc(npcByIndex(index));
 	}
 
 	private static Integer npcId(NPC npc)
