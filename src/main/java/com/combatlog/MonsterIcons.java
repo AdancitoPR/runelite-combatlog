@@ -13,27 +13,32 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.util.Filepath;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Small transparent renders of the NPC that was hit. Images come from the
- * public OSRS model renders and are cached by NPC id.
+ * Small transparent renders of the NPC that was hit. Pictures are hosted on
+ * this plugin's {@code npc-icons} branch and kept on disk in the plugin folder.
  */
 @Slf4j
 @Singleton
 class MonsterIcons
 {
 	static final int SIZE = 26;
+	static final String USER_AGENT = "Detailed Combat Log (RuneLite plugin; https://github.com/AdancitoPR/runelite-combatlog)";
 	private static final int MAX_BYTES = 2_000_000;
-	private static final String ICON_URL = "https://chisel.weirdgloop.org/static/img/osrs-npc/%d_128.png";
+	private static final String ICON_URL = "https://raw.githubusercontent.com/AdancitoPR/runelite-combatlog/npc-icons/icons/%d.png";
 
 	@Nullable
 	private final OkHttpClient http;
+	@Nullable
+	private volatile Filepath cache;
 	private final ConcurrentHashMap<Integer, BufferedImage> icons = new ConcurrentHashMap<>();
 	private final Set<Integer> pending = ConcurrentHashMap.newKeySet();
 	private final Set<Integer> missing = ConcurrentHashMap.newKeySet();
@@ -57,6 +62,27 @@ class MonsterIcons
 	}
 
 	/**
+	 * Saves downloaded pictures under this folder. The folder is the plugin
+	 * directory from {@link net.runelite.client.plugins.Plugin#getPluginDirectory()}.
+	 */
+	void setCache(@Nullable Filepath directory)
+	{
+		if (directory == null)
+		{
+			return;
+		}
+		try
+		{
+			directory.createDirectories();
+			cache = directory;
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not create the monster icon folder", ex);
+		}
+	}
+
+	/**
 	 * When off, nothing is downloaded. Icons already loaded are still returned.
 	 */
 	void setEnabled(boolean enabled)
@@ -67,21 +93,37 @@ class MonsterIcons
 	BufferedImage get(int npcId)
 	{
 		BufferedImage icon = icons.get(npcId);
-		if (icon != null || !enabled || missing.contains(npcId) || !pending.add(npcId))
+		if (icon != null || !enabled || missing.contains(npcId))
 		{
 			return icon;
 		}
-
+		icon = readCache(npcId);
+		if (icon != null)
+		{
+			icons.put(npcId, icon);
+			return icon;
+		}
+		if (!pending.add(npcId))
+		{
+			return null;
+		}
 		if (http == null)
 		{
 			pending.remove(npcId);
 			return null;
 		}
+		requestIcon(npcId);
+		return null;
+	}
 
-		Request request = new Request.Builder()
-			.url(String.format(ICON_URL, npcId))
-			.build();
-		http.newCall(request).enqueue(new Callback()
+	static HttpUrl iconUrl(int npcId)
+	{
+		return HttpUrl.get(String.format(ICON_URL, npcId));
+	}
+
+	private void requestIcon(int npcId)
+	{
+		http.newCall(request(iconUrl(npcId))).enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException error)
@@ -103,7 +145,14 @@ class MonsterIcons
 				}
 			}
 		});
-		return null;
+	}
+
+	private Request request(HttpUrl url)
+	{
+		return new Request.Builder()
+			.url(url)
+			.header("User-Agent", USER_AGENT)
+			.build();
 	}
 
 	private void finish(int npcId, @Nullable byte[] body, @Nullable Throwable error)
@@ -115,6 +164,7 @@ class MonsterIcons
 				BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(body));
 				if (decoded != null)
 				{
+					writeCache(npcId, body);
 					icons.put(npcId, toIcon(decoded));
 					Runnable callback = onLoaded;
 					if (callback != null)
@@ -138,6 +188,51 @@ class MonsterIcons
 		finally
 		{
 			pending.remove(npcId);
+		}
+	}
+
+	@Nullable
+	private BufferedImage readCache(int npcId)
+	{
+		Filepath directory = cache;
+		if (directory == null)
+		{
+			return null;
+		}
+		try
+		{
+			Filepath file = directory.joinSegment(npcId + ".png");
+			if (!file.isFile() || file.size() <= 0 || file.size() > MAX_BYTES)
+			{
+				return null;
+			}
+			try (var in = file.openInputStream())
+			{
+				BufferedImage decoded = ImageIO.read(in);
+				return decoded == null ? null : toIcon(decoded);
+			}
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not read cached monster icon {}", npcId, ex);
+			return null;
+		}
+	}
+
+	private void writeCache(int npcId, byte[] body)
+	{
+		Filepath directory = cache;
+		if (directory == null)
+		{
+			return;
+		}
+		try
+		{
+			directory.joinSegment(npcId + ".png").write(body);
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not save monster icon {}", npcId, ex);
 		}
 	}
 
