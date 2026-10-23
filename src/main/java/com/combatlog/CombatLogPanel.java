@@ -1154,6 +1154,14 @@ class CombatLogPanel extends PluginPanel
 		copyTimer.start();
 	}
 
+	/**
+	 * The sidebar scroll pane. Tests use this instead of reflecting into {@link net.runelite.client.ui.PluginPanel}.
+	 */
+	JScrollPane wrappedScrollPane()
+	{
+		return getScrollPane();
+	}
+
 	private JLabel targetIcon(Fight fight, @Nullable HitRecord sample)
 	{
 		if (fight.getKind() == TargetKind.PLAYER)
