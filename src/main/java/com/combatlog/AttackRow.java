@@ -51,7 +51,12 @@ public final class AttackRow
 				return true;
 			}
 		}
-		return false;
+		if (hits.size() < 2)
+		{
+			return false;
+		}
+		Integer weapon = first().getWeaponItemId();
+		return weapon != null && SpecWeapons.multiSpec(weapon);
 	}
 
 	public int getTotal()
@@ -80,15 +85,23 @@ public final class AttackRow
 	private boolean accepts(HitRecord hit)
 	{
 		HitRecord first = hits.get(0);
-		if (first.isBlock() || hit.isBlock() || first.isSplash() || hit.isSplash())
+		if (first.isSplash() || hit.isSplash())
 		{
 			return false;
 		}
-		if (first.getDirection() != hit.getDirection() || first.getDirection() == DamageDirection.INCOMING)
+		if (first.getDirection() != hit.getDirection() || first.getSource() != hit.getSource())
 		{
 			return false;
 		}
-		if (first.getSource() != hit.getSource())
+		if (!Objects.equals(first.getFightId(), hit.getFightId()))
+		{
+			return false;
+		}
+		if (specBurst(first, hit))
+		{
+			return true;
+		}
+		if (first.getDirection() == DamageDirection.INCOMING || first.isBlock() || hit.isBlock())
 		{
 			return false;
 		}
@@ -100,8 +113,39 @@ public final class AttackRow
 			&& hit.getAttackId() == null
 			&& first.getTick() > 0
 			&& first.getTick() == hit.getTick()
-			&& Objects.equals(first.getWeaponItemId(), hit.getWeaponItemId())
-			&& Objects.equals(first.getFightId(), hit.getFightId());
+			&& Objects.equals(first.getWeaponItemId(), hit.getWeaponItemId());
+	}
+
+	/**
+	 * Hitsplats from one dragon-claw or dagger special, including a zero that
+	 * lands a tick later. Daggers also hit twice on a normal swing, so those
+	 * stay a normal row and only claws are labeled Spec.
+	 */
+	private static boolean specBurst(HitRecord first, HitRecord hit)
+	{
+		Integer weapon = first.getWeaponItemId();
+		if (weapon == null || weapon <= 0 || !weapon.equals(hit.getWeaponItemId()))
+		{
+			return false;
+		}
+		if (first.getSource() != DamageSource.WEAPON || hit.getSource() != DamageSource.WEAPON)
+		{
+			return false;
+		}
+		int window = SpecWeapons.burst(weapon);
+		if (window <= 0 || first.getTick() <= 0 || hit.getTick() <= 0)
+		{
+			return false;
+		}
+		if (Math.abs(hit.getTick() - first.getTick()) > window)
+		{
+			return false;
+		}
+		if (first.isSpecial() || hit.isSpecial() || first.getDirection() == DamageDirection.INCOMING)
+		{
+			return true;
+		}
+		return SpecWeapons.multiSpec(weapon);
 	}
 
 	private void add(HitRecord hit)
@@ -114,17 +158,24 @@ public final class AttackRow
 		List<HitRecord> ordered = new ArrayList<>(hits);
 		ordered.sort(Comparator.comparingInt(HitRecord::getSequence).thenComparingLong(HitRecord::getTimeMillis));
 		List<AttackRow> rows = new ArrayList<>();
-		AttackRow current = null;
 		for (HitRecord hit : ordered)
 		{
-			if (current != null && current.accepts(hit))
+			AttackRow match = null;
+			for (int i = rows.size() - 1; i >= 0; i--)
 			{
-				current.add(hit);
+				if (rows.get(i).accepts(hit))
+				{
+					match = rows.get(i);
+					break;
+				}
+			}
+			if (match != null)
+			{
+				match.add(hit);
 			}
 			else
 			{
-				current = new AttackRow(hit);
-				rows.add(current);
+				rows.add(new AttackRow(hit));
 			}
 		}
 		Collections.reverse(rows);

@@ -461,6 +461,33 @@ public class CombatLogPanelTest
 		return null;
 	}
 
+	private static int labelIndex(Component component, String text)
+	{
+		int[] index = {-1, 0};
+		walkLabels(component, text, index);
+		return index[0];
+	}
+
+	private static void walkLabels(Component component, String text, int[] index)
+	{
+		if (component instanceof JLabel && text.equals(((JLabel) component).getText()))
+		{
+			if (index[0] < 0)
+			{
+				index[0] = index[1];
+			}
+		}
+		index[1]++;
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				walkLabels(container.getComponent(i), text, index);
+			}
+		}
+	}
+
 	private static int countLabels(Component component, String text)
 	{
 		int count = component instanceof JLabel && text.equals(((JLabel) component).getText()) ? 1 : 0;

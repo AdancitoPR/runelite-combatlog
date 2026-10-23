@@ -315,6 +315,132 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void soleOpenPlayerIsTheOneFightStillGoing()
+	{
+		CombatLog log = new CombatLog(10);
+		assertNull(log.soleOpenPlayer());
+		log.add(new HitRecord(600L, "Zezima", TargetKind.PLAYER, null, null, 1333, 5, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertEquals("Zezima", log.soleOpenPlayer());
+		log.add(new HitRecord(1_200L, "SomeoneElse", TargetKind.PLAYER, null, null, 1333, 4, HitKind.HIT, null, 2, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertNull(log.soleOpenPlayer());
+	}
+
+	@Test
+	public void incomingPlayerUsesTheOpponentYouAreFighting()
+	{
+		assertEquals("Zezima", IncomingPlayer.name("Zezima", "SomeoneElse", "Older"));
+		assertEquals("SomeoneElse", IncomingPlayer.name(null, "SomeoneElse", "Older"));
+		assertEquals("Older", IncomingPlayer.name("", null, "Older"));
+		assertNull(IncomingPlayer.name(null, "", null));
+	}
+
+	@Test
+	public void incomingPlayerHitKeepsTheWeaponFromThatSwing()
+	{
+		IncomingWeapons weapons = new IncomingWeapons();
+		weapons.note("Zezima", 10, 4151);
+		weapons.note("Zezima", 14, 11802);
+		assertEquals(Integer.valueOf(4151), weapons.weaponFor("Zezima", 12));
+		assertEquals(Integer.valueOf(4151), weapons.weaponFor("Zezima", 13));
+		assertEquals(Integer.valueOf(11802), weapons.weaponFor("Zezima", 16));
+		assertNull(weapons.weaponFor("SomeoneElse", 16));
+
+		HitRecord hit = new HitRecord(1_200L, "Zezima", TargetKind.PLAYER, null, null, null, 20, HitKind.HIT, null, 12, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0).withWeapon(4151).withStyle(CombatStyle.MELEE);
+		assertEquals(Integer.valueOf(4151), hit.getWeaponItemId());
+		assertEquals(CombatStyle.MELEE, hit.getCombatStyle());
+		assertNull(hit.withWeapon(WeaponSlot.UNARMED).getWeaponItemId());
+	}
+
+	@Test
+	public void incomingAndBothViewsListDamageTakenFromAPlayer()
+	{
+		CombatLog log = new CombatLog(10);
+		log.notePlayerHead("Zezima", 1153, "Rune full helm");
+		log.add(new HitRecord(1_200L, "Zezima", TargetKind.PLAYER, null, null, null, 40, HitKind.HIT, null, 2, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(1_800L, "Zezima", TargetKind.PLAYER, null, null, null, 70, HitKind.HIT, null, 3, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		CombatSnapshot incoming = log.summarize(3_000L, 10, DamageView.INCOMING);
+		assertEquals(110L, incoming.getDamageTaken());
+		assertEquals(1, incoming.getFights().size());
+		Fight fight = incoming.getFights().get(0);
+		assertEquals(TargetKind.PLAYER, fight.getKind());
+		assertEquals(2, fight.visibleHits(DamageView.INCOMING).size());
+		assertEquals(110, fight.headerAmount(DamageView.INCOMING));
+		assertTrue(fight.showsTaken(DamageView.INCOMING));
+
+		CombatSnapshot both = log.summarize(3_000L, 10, DamageView.BOTH);
+		assertEquals(1, both.getFights().size());
+		assertEquals(2, both.getHits().size());
+		assertEquals(110L, both.getDamageTaken());
+		assertEquals(2, fight.visibleHits(DamageView.BOTH).size());
+		assertEquals(110, fight.headerAmount(DamageView.BOTH));
+		assertTrue(fight.showsTaken(DamageView.BOTH));
+
+		CombatSnapshot outgoing = log.summarize(3_000L, 10, DamageView.OUTGOING);
+		assertEquals(0, outgoing.getFights().size());
+		assertEquals(0, fight.visibleHits(DamageView.OUTGOING).size());
+		assertEquals(110L, outgoing.getDamageTaken());
+	}
+
+	@Test
+	public void incomingHitsOnAPlayerJoinThatPlayersFight()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(600L, "Zezima", TargetKind.PLAYER, null, null, 1333, 5, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(1_200L, "Zezima", TargetKind.PLAYER, null, null, null, 8, HitKind.HIT, null, 2, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertEquals(1, log.summarize(2_000L, 10).getFights().size());
+		assertEquals("Zezima", log.summarize(2_000L, 10).getFights().get(0).getName());
+		assertEquals(TargetKind.PLAYER, log.summarize(2_000L, 10).getFights().get(0).getKind());
+	}
+
+	@Test
+	public void playerFightKeepsTheHeadItemSeenWhenTheFightStarts()
+	{
+		CombatLog log = new CombatLog(10);
+		log.notePlayerHead("Zezima", 1153, "Black med helm");
+		log.add(new HitRecord(600L, "Zezima", TargetKind.PLAYER, null, null, 1333, 5, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		Fight fight = log.summarize(1_000L, 10).getFights().get(0);
+		assertEquals(Integer.valueOf(1153), fight.getHeadItemId());
+		assertEquals("Black med helm", fight.getHeadItemName());
+
+		log.notePlayerHead("Zezima", HeadSlot.BARE);
+		assertEquals(Integer.valueOf(HeadSlot.BARE), log.summarize(1_000L, 10).getFights().get(0).getHeadItemId());
+	}
+
+	@Test
+	public void poisonCountsOnlyWhileThatPlayerFightIsOpen()
+	{
+		CombatLog log = new CombatLog(10);
+		assertFalse(log.fightingPlayer("Mrssanitizer", 10));
+		assertFalse(log.fightingPlayer(null, 10));
+
+		log.noteAttack(10, null, "Mrssanitizer", 1333, 4);
+		assertTrue(log.fightingPlayer("Mrssanitizer", 12));
+		assertFalse(log.fightingPlayer("SomeoneElse", 12));
+
+		log.add(new HitRecord(12_000L, "Mrssanitizer", TargetKind.PLAYER, null, null, 1333, 8, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		assertTrue(log.fightingPlayer("Mrssanitizer", 80));
+		assertFalse(log.fightingPlayer("SomeoneElse", 80));
+	}
+
+	@Test
+	public void newestFightIsListedFirst()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 1, 301, 5));
+		log.closeLife(1, 6);
+		log.add(npcHit(30, "Rat", 2, 2853, 9));
+		log.closeLife(2, 36);
+		log.add(npcHit(10, "Guard", 3, 302, 4));
+
+		List<Fight> fights = log.summarize(36_000L, 10).getFights();
+		assertEquals(3, fights.size());
+		assertEquals("Rat", fights.get(0).getName());
+		assertEquals("Guard", fights.get(1).getName());
+		assertEquals("Goblin", fights.get(2).getName());
+	}
+
+	@Test
 	public void playerFightStillSplitsAfterAQuietGap()
 	{
 		CombatLog log = new CombatLog(10);
@@ -662,6 +788,32 @@ public class CombatLogTest
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
 		assertEquals("40 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Arrays.asList(max)).get(0)));
+	}
+
+	@Test
+	public void multiHitSpecIsOneSummedRow()
+	{
+		List<AttackRow> claws = AttackRow.group(Arrays.asList(
+			specHit(10, 13652, 18, false),
+			specHit(10, 13652, 9, false),
+			specHit(11, 13652, 4, false),
+			specHit(11, 13652, 0, true)));
+		assertEquals(1, claws.size());
+		assertTrue(claws.get(0).isSpecial());
+		assertEquals("Spec", CombatLogFormatter.rowKind(claws.get(0)));
+		assertEquals("31", CombatLogFormatter.rowAmount(claws.get(0)));
+
+		List<AttackRow> daggers = AttackRow.group(Arrays.asList(
+			specHit(20, 1215, 12, false),
+			specHit(20, 1215, 6, false)));
+		assertEquals(1, daggers.size());
+		assertFalse(daggers.get(0).isSpecial());
+		assertEquals("18", CombatLogFormatter.rowAmount(daggers.get(0)));
+
+		List<AttackRow> separate = AttackRow.group(Arrays.asList(
+			specHit(30, 13652, 10, false),
+			specHit(34, 13652, 20, false)));
+		assertEquals(2, separate.size());
 	}
 
 	@Test
@@ -1148,6 +1300,11 @@ public class CombatLogTest
 	private static HitRecord incoming(int tick, String name, int index, int npcId, int amount)
 	{
 		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
+	private static HitRecord specHit(int tick, int weapon, int amount, boolean block)
+	{
+		return new HitRecord(tick * 600L, "Zezima", TargetKind.PLAYER, null, null, weapon, amount, block ? HitKind.BLOCK : HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, 4L, tick);
 	}
 
 	private static HitRecord attackHit(int tick, int amount, long attackId)

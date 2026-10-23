@@ -28,6 +28,7 @@ final class FightTracker
 	private final Map<Long, Fight> byId = new HashMap<>();
 	private final List<AttackSwing> queued = new ArrayList<>();
 	private final TreeSet<Integer> activeTicks = new TreeSet<>();
+	private final Map<String, HeadGear> playerHeads = new HashMap<>();
 	private long nextFightId = 1;
 	private long nextAttackId = 1;
 	private int nextSequence;
@@ -51,6 +52,29 @@ final class FightTracker
 	 * The NPC the player is already fighting, including the short window after
 	 * it dies so the last incoming hit stays on that same log.
 	 */
+	/**
+	 * The one player fight still open, so incoming damage can stay on it when
+	 * the opponent is no longer the interaction target.
+	 */
+	@Nullable
+	String soleOpenPlayer()
+	{
+		String name = null;
+		for (Fight fight : open.values())
+		{
+			if (fight.isClosed() || fight.getKind() != TargetKind.PLAYER)
+			{
+				continue;
+			}
+			if (name != null)
+			{
+				return null;
+			}
+			name = fight.getName();
+		}
+		return name;
+	}
+
 	@Nullable
 	Integer currentNpc(@Nullable Integer npcIndex, int tick)
 	{
@@ -401,6 +425,47 @@ final class FightTracker
 		return latestSwing(npcIndex, tick) != null;
 	}
 
+	boolean fightingPlayer(@Nullable String name, int tick)
+	{
+		if (name == null || name.isEmpty())
+		{
+			return false;
+		}
+		Fight current = open.get(playerKey(name));
+		if (current != null && !current.isClosed())
+		{
+			return true;
+		}
+		for (AttackSwing swing : queued)
+		{
+			if (swing.getNpcIndex() != null || !name.equals(swing.getName()))
+			{
+				continue;
+			}
+			int gap = tick - swing.getTick();
+			if (gap >= 0 && gap <= WEAPON_WINDOW)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void notePlayerHead(@Nullable String name, int itemId, @Nullable String itemName)
+	{
+		if (name == null || name.isEmpty() || itemId < 0)
+		{
+			return;
+		}
+		String shown = itemId > 0 ? itemName : null;
+		playerHeads.put(name, new HeadGear(itemId, shown));
+		Fight fight = open.get(playerKey(name));
+		if (fight != null)
+		{
+			fight.setHead(itemId, shown);
+		}
+	}
+
 	void noteCombatTick(int tick)
 	{
 		activeTicks.add(tick);
@@ -497,6 +562,7 @@ final class FightTracker
 		byId.clear();
 		queued.clear();
 		activeTicks.clear();
+		playerHeads.clear();
 		lastTick = 0;
 	}
 
@@ -533,6 +599,14 @@ final class FightTracker
 		}
 
 		Fight created = new Fight(nextFightId++, hit.getTargetName(), hit.getTargetKind(), hit.getNpcId(), hit.getNpcIndex(), hit.getTick());
+		if (hit.getTargetKind() == TargetKind.PLAYER)
+		{
+			HeadGear head = playerHeads.get(hit.getTargetName());
+			if (head != null)
+			{
+				created.setHead(head.itemId, head.itemName);
+			}
+		}
 		flushQueued(created, hit.getTick());
 		fights.add(created);
 		open.put(key, created);
@@ -688,5 +762,18 @@ final class FightTracker
 	private static String playerKey(String name)
 	{
 		return "player:" + name;
+	}
+
+	private static final class HeadGear
+	{
+		private final int itemId;
+		@Nullable
+		private final String itemName;
+
+		private HeadGear(int itemId, @Nullable String itemName)
+		{
+			this.itemId = itemId;
+			this.itemName = itemName;
+		}
 	}
 }

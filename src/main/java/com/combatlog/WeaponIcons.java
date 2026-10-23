@@ -5,12 +5,15 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ItemComposition;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.AsyncBufferedImage;
+import net.runelite.client.util.Text;
 
 /**
  * Small transparent item icons for the weapon that landed each hit. Sprites
@@ -38,6 +41,35 @@ class WeaponIcons
 		onLoaded = callback;
 	}
 
+	@Nullable
+	String name(int itemId)
+	{
+		if (itemManager == null || itemId <= 0)
+		{
+			return null;
+		}
+		ItemComposition composition;
+		try
+		{
+			composition = itemManager.getItemComposition(itemId);
+		}
+		catch (RuntimeException | AssertionError ex)
+		{
+			log.debug("Could not read item {}", itemId, ex);
+			return null;
+		}
+		if (composition == null)
+		{
+			return null;
+		}
+		String itemName = composition.getName();
+		if (itemName == null || itemName.isEmpty() || "null".equals(itemName))
+		{
+			return null;
+		}
+		return Text.removeTags(itemName);
+	}
+
 	BufferedImage get(int itemId)
 	{
 		if (itemId <= 0)
@@ -56,7 +88,7 @@ class WeaponIcons
 			AsyncBufferedImage image = itemManager.getImage(itemId);
 			image.onLoaded(() -> finish(itemId, image));
 		}
-		catch (Exception ex)
+		catch (Exception | AssertionError ex)
 		{
 			pending.remove(itemId);
 			log.debug("Could not request weapon icon {}", itemId, ex);
