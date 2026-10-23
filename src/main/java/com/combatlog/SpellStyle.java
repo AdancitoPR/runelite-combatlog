@@ -12,9 +12,6 @@ import javax.annotation.Nullable;
  */
 final class SpellStyle
 {
-	/** Struct param that holds the attack style name. */
-	static final int STYLE_NAME_PARAM = 1407;
-
 	private SpellStyle()
 	{
 	}

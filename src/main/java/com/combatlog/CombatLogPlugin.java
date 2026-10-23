@@ -28,6 +28,7 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
+import net.runelite.api.ParamID;
 import net.runelite.api.Player;
 import net.runelite.api.Projectile;
 import net.runelite.api.StructComposition;
@@ -784,18 +785,28 @@ public class CombatLogPlugin extends Plugin
 			}
 			return;
 		}
+		Actor targetActor = projectile.getTargetActor();
+		WorldPoint playerTile = player.getWorldLocation();
+		if (IncomingStyles.leavesPlayer(projectile.getSourcePoint(), projectile.getTargetPoint(), playerTile))
+		{
+			return;
+		}
+		if (targetActor != null && targetActor != player)
+		{
+			return;
+		}
 		NPC npc = source instanceof NPC ? (NPC) source : null;
 		if (npc != null && (isThrall(npc) || isPet(npc) || ObjectFilter.ignored(npcId(npc), npc.getName())))
 		{
 			return;
 		}
 		boolean aimed = IncomingStyles.aimedAt(
-			projectile.getTargetActor(),
+			targetActor,
 			null,
 			player,
 			projectile.getTargetPoint(),
-			player.getWorldLocation());
-		if (!aimed && !nearPlayer(projectile.getTargetPoint(), player.getWorldLocation()))
+			playerTile);
+		if (!aimed && !nearPlayer(projectile.getTargetPoint(), playerTile))
 		{
 			return;
 		}
@@ -1051,7 +1062,7 @@ public class CombatLogPlugin extends Plugin
 			for (int i = 0; i < structIds.length; i++)
 			{
 				StructComposition struct = client.getStructComposition(structIds[i]);
-				names[i] = struct == null ? null : struct.getStringValue(SpellStyle.STYLE_NAME_PARAM);
+				names[i] = struct == null ? null : struct.getStringValue(ParamID.ATTACK_STYLE_NAME);
 			}
 			return names;
 		}

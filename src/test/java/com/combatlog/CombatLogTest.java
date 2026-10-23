@@ -896,6 +896,9 @@ public class CombatLogTest
 		assertTrue(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3201, 3200, 0), tile));
 		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3204, 3200, 0), tile));
 		assertFalse(IncomingStyles.aimedAt(null, null, null, new WorldPoint(3200, 3200, 1), tile));
+		assertFalse(IncomingStyles.leavesPlayer(tile, tile, tile));
+		assertTrue(IncomingStyles.leavesPlayer(tile, new WorldPoint(3201, 3200, 0), tile));
+		assertFalse(IncomingStyles.leavesPlayer(new WorldPoint(3210, 3200, 0), tile, tile));
 
 		IncomingStyles one = new IncomingStyles();
 		one.noteProjectile(4, 1000, false);

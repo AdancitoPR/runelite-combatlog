@@ -95,6 +95,25 @@ final class IncomingStyles
 	}
 
 	/**
+	 * A shot that starts on the player's tile and ends somewhere else is the
+	 * player's own attack. Standing next to the target puts that end tile
+	 * inside the incoming range, which would mark a melee hit as ranged.
+	 */
+	static boolean leavesPlayer(@Nullable WorldPoint source, @Nullable WorldPoint target, @Nullable WorldPoint playerTile)
+	{
+		if (!sameTile(source, playerTile) || target == null)
+		{
+			return false;
+		}
+		return !sameTile(target, playerTile);
+	}
+
+	private static boolean sameTile(@Nullable WorldPoint left, @Nullable WorldPoint right)
+	{
+		return left != null && right != null && left.getPlane() == right.getPlane() && left.getX() == right.getX() && left.getY() == right.getY();
+	}
+
+	/**
 	 * A projectile is aimed at the player when it targets them, or when its
 	 * destination is on their tile. NPC bolts often have no target actor.
 	 */

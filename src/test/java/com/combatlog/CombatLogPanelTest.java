@@ -565,16 +565,7 @@ public class CombatLogPanelTest
 
 	private static JScrollPane scrollPane(CombatLogPanel panel)
 	{
-		try
-		{
-			java.lang.reflect.Method method = PluginPanel.class.getDeclaredMethod("getScrollPane");
-			method.setAccessible(true);
-			return (JScrollPane) method.invoke(panel);
-		}
-		catch (ReflectiveOperationException e)
-		{
-			throw new AssertionError(e);
-		}
+		return panel.wrappedScrollPane();
 	}
 
 	private static boolean contains(Component component, Class<?> type)

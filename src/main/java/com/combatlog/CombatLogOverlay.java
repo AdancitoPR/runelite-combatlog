@@ -110,7 +110,7 @@ class CombatLogOverlay extends OverlayPanel
 					.leftColor(BLOCK_COLOR)
 					.build());
 			}
-			panelComponent.getChildren().add(fightTitle(fight));
+			panelComponent.getChildren().add(fightTitle(fight, snapshot.getView()));
 			String delve = DoomDelve.detail(fight.getDelve());
 			if (delve != null)
 			{

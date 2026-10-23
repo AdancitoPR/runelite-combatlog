@@ -730,7 +730,7 @@ class CombatLogPanel extends PluginPanel
 		{
 			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
 		}
-		block.add(fightHeader(fight, open));
+		block.add(fightHeader(fight, open, snapshot.getView()));
 		String delve = DoomDelve.detail(fight.getDelve());
 		if (delve != null)
 		{
@@ -1152,6 +1152,14 @@ class CombatLogPanel extends PluginPanel
 		copyTimer = new Timer(1200, event -> copyButton.setText("Copy"));
 		copyTimer.setRepeats(false);
 		copyTimer.start();
+	}
+
+	/**
+	 * The sidebar scroll pane. Tests use this instead of reflecting into {@link net.runelite.client.ui.PluginPanel}.
+	 */
+	JScrollPane wrappedScrollPane()
+	{
+		return getScrollPane();
 	}
 
 	private JLabel targetIcon(Fight fight, @Nullable HitRecord sample)
