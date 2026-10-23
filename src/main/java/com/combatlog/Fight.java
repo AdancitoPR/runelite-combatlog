@@ -22,12 +22,9 @@ public final class Fight
 	private boolean closed;
 	private boolean killed;
 	private Integer maxHp;
-	/** Head item id for a player. 0 means nothing is worn there. Null for an NPC. */
-	@Nullable
-	private Integer headItemId;
-	/** Name of {@link #headItemId}, read on the client thread when the head was seen. */
-	@Nullable
-	private String headItemName;
+	private Integer delve;
+	/** Attack tick just before a phase left this fight, so that gap is not lost ticks. */
+	private final List<Integer> phaseBreaks = new ArrayList<>();
 
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
@@ -133,10 +130,61 @@ public final class Fight
 
 	void setMaxHp(int maxHp)
 	{
-		if (maxHp > 0)
+		if (delve != null || maxHp <= 0)
 		{
-			this.maxHp = maxHp;
+			return;
 		}
+		this.maxHp = maxHp;
+	}
+
+	@Nullable
+	public Integer getDelve()
+	{
+		return delve;
+	}
+
+	/**
+	 * The first positive reading wins. A later descent updates the player
+	 * variable, and that value belongs to the next fight.
+	 */
+	void setDelve(int level)
+	{
+		if (delve != null || level <= 0)
+		{
+			return;
+		}
+		delve = level;
+		int hp = DoomDelve.maxHp(level);
+		if (hp > 0)
+		{
+			maxHp = hp;
+		}
+	}
+
+	/**
+	 * The boss left and came back, for example after burrowing. The idle gap
+	 * is part of the delve, and it is not time the player failed to attack.
+	 */
+	void notePhaseResume(int tick)
+	{
+		int last = 0;
+		for (AttackSwing swing : attacks)
+		{
+			if (swing.getTick() > last)
+			{
+				last = swing.getTick();
+			}
+		}
+		if (last <= 0 || tick - last <= 8 || phaseBreaks.contains(last))
+		{
+			return;
+		}
+		phaseBreaks.add(last);
+	}
+
+	List<Integer> phaseBreaks()
+	{
+		return Collections.unmodifiableList(phaseBreaks);
 	}
 
 	int lastTick()
@@ -181,8 +229,8 @@ public final class Fight
 		copy.closed = closed;
 		copy.killed = killed;
 		copy.maxHp = maxHp;
-		copy.headItemId = headItemId;
-		copy.headItemName = headItemName;
+		copy.delve = delve;
+		copy.phaseBreaks.addAll(phaseBreaks);
 		return copy;
 	}
 

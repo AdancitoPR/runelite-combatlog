@@ -214,30 +214,27 @@ public class CombatLogPanelTest
 	}
 
 	@Test
-	public void recentFightsStayAboveOlderOnes() throws Exception
+	public void doomFightShowsItsDelve() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->
 		{
 			CombatLog log = new CombatLog(10);
-			log.add(hit("Goblin", 1, 5, 1));
-			log.closeLife(1, 6);
-			log.add(hit("Goblin", 2, 11, 20));
-			log.closeLife(2, 26);
-			log.add(hit("Rat", 3, 9, 40));
-			log.closeLife(3, 46);
+			log.add(hit("Doom of Mokhaiotl", 1, 20, 1));
+			log.noteDelve(1, 4);
+			log.closeLife(1, 10);
+			log.add(hit("Doom of Mokhaiotl", 2, 15, 20));
+			log.noteDelve(2, 5);
+			log.closeLife(2, 30);
 			CombatLogPanel panel = new CombatLogPanel(log, config(10), new MonsterIcons(), new WeaponIcons(null));
 			panel.refresh();
 
-			assertTrue(labelIndex(panel, "Rat") < labelIndex(panel, "Goblin"));
-			assertTrue(labelIndex(panel, "11") < labelIndex(panel, "5"));
-
-			CombatLog mixed = new CombatLog(10);
-			mixed.add(hit("Goblin", 1, 5, 1));
-			mixed.add(hit("Rat", 2, 9, 40));
-			mixed.closeLife(2, 46);
-			CombatLogPanel mixedPanel = new CombatLogPanel(mixed, config(10), new MonsterIcons(), new WeaponIcons(null));
-			mixedPanel.refresh();
-			assertTrue(labelIndex(mixedPanel, "Rat") < labelIndex(mixedPanel, "Goblin"));
+			assertNotNull(findLabel(panel, "Doom of Mokhaiotl"));
+			assertNotNull(findLabel(panel, "Delve 4 · HP: 600"));
+			assertNotNull(findLabel(panel, "Delve 5 · HP: 625"));
+			assertEquals(1, countLabels(panel, "Delve 4 · HP: 600"));
+			assertEquals(1, countLabels(panel, "Delve 5 · HP: 625"));
+			assertNull(findLabel(panel, "HP: 600"));
+			assertNull(findLabel(panel, "HP: 625"));
 		});
 	}
 

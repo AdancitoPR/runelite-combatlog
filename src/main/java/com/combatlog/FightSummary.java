@@ -1,6 +1,7 @@
 package com.combatlog;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import javax.annotation.Nullable;
@@ -21,6 +22,16 @@ public final class FightSummary
 
 	public static int lostTicks(List<AttackSwing> attacks)
 	{
+		return lostTicks(attacks, Collections.emptyList());
+	}
+
+	static int lostTicks(Fight fight)
+	{
+		return lostTicks(fight.getAttacks(), fight.phaseBreaks());
+	}
+
+	private static int lostTicks(List<AttackSwing> attacks, List<Integer> phaseBreaks)
+	{
 		if (attacks.size() < 2)
 		{
 			return 0;
@@ -30,7 +41,13 @@ public final class FightSummary
 		int lost = 0;
 		for (int i = 1; i < ordered.size(); i++)
 		{
-			int gap = ordered.get(i).getTick() - ordered.get(i - 1).getTick();
+			int previous = ordered.get(i - 1).getTick();
+			int next = ordered.get(i).getTick();
+			if (crossesPhaseBreak(phaseBreaks, previous, next))
+			{
+				continue;
+			}
+			int gap = next - previous;
 			int speed = ordered.get(i - 1).getSpeed();
 			if (gap > speed)
 			{
@@ -38,6 +55,18 @@ public final class FightSummary
 			}
 		}
 		return lost;
+	}
+
+	private static boolean crossesPhaseBreak(List<Integer> phaseBreaks, int previous, int next)
+	{
+		for (int breakTick : phaseBreaks)
+		{
+			if (breakTick >= previous && breakTick < next)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@Nullable
@@ -104,7 +133,7 @@ public final class FightSummary
 				text.append(" · ").append(overlay ? "Acc " : "Accuracy ").append(accuracy).append('%');
 			}
 		}
-		int lost = lostTicks(fight.getAttacks());
+		int lost = lostTicks(fight);
 		if (lost > 0)
 		{
 			text.append(" · Lost\u00a0ticks:\u00a0").append(lost);

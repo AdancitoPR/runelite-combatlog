@@ -23,6 +23,8 @@ final class FightTracker
 	private final List<Fight> fights = new ArrayList<>();
 	private final Map<String, Fight> open = new HashMap<>();
 	private final Map<String, Fight> lastClosed = new HashMap<>();
+	/** The open surface fight for each Doom delve. Shield and respawn share it. */
+	private final Map<Integer, Fight> surfaceByLevel = new HashMap<>();
 	private final Map<Long, Fight> byId = new HashMap<>();
 	private final List<AttackSwing> queued = new ArrayList<>();
 	private final TreeSet<Integer> activeTicks = new TreeSet<>();
@@ -111,8 +113,7 @@ final class FightTracker
 			return;
 		}
 		fight.closeKilled(tick);
-		open.remove(key);
-		lastClosed.put(key, fight);
+		detach(fight, key);
 	}
 
 	/**
@@ -136,8 +137,7 @@ final class FightTracker
 			return;
 		}
 		fight.closeQuiet(fight.lastTick());
-		open.remove(key);
-		lastClosed.put(key, fight);
+		detach(fight, key);
 	}
 
 	/**
@@ -154,14 +154,19 @@ final class FightTracker
 		{
 			Map.Entry<String, Fight> entry = iterator.next();
 			Fight fight = entry.getValue();
-			if (fight.getKind() != TargetKind.NPC || fight.isClosed())
+			if (fight.getKind() != TargetKind.NPC)
 			{
 				continue;
 			}
-			fight.closeQuiet(fight.lastTick());
-			lastClosed.put(entry.getKey(), fight);
+			if (!fight.isClosed())
+			{
+				fight.closeQuiet(fight.lastTick());
+				lastClosed.put(entry.getKey(), fight);
+				unmapSurface(fight);
+			}
 			iterator.remove();
 		}
+		surfaceByLevel.clear();
 	}
 
 	void noteForm(@Nullable Integer npcIndex, int npcId)
@@ -171,9 +176,19 @@ final class FightTracker
 			return;
 		}
 		Fight fight = open.get(npcKey(npcIndex));
-		if (fight != null)
+		if (fight == null)
 		{
-			fight.setNpcId(npcId);
+			return;
+		}
+		// Burrow is its own log. Retagging the surface fight would split the delve.
+		if (DoomDelve.surface(fight.getNpcId()) && DoomDelve.burrowed(npcId))
+		{
+			return;
+		}
+		fight.setNpcId(npcId);
+		if (DoomDelve.surface(npcId) && fight.getDelve() != null && !fight.isClosed())
+		{
+			surfaceByLevel.put(fight.getDelve(), fight);
 		}
 	}
 
@@ -187,6 +202,162 @@ final class FightTracker
 		if (fight != null)
 		{
 			fight.setMaxHp(maxHp);
+		}
+	}
+
+	void noteDelve(@Nullable Integer npcIndex, int level)
+	{
+		if (npcIndex == null || level <= 0)
+		{
+			return;
+		}
+		Fight fight = open.get(npcKey(npcIndex));
+		if (fight == null || fight.isClosed())
+		{
+			return;
+		}
+		boolean first = fight.getDelve() == null;
+		if (first && DoomDelve.surface(fight.getNpcId()))
+		{
+			finishLowerSurfaces(level, fight);
+		}
+		fight.setDelve(level);
+		if (first && DoomDelve.surface(fight.getNpcId()) && fight.getDelve() != null)
+		{
+			surfaceByLevel.put(fight.getDelve(), fight);
+		}
+	}
+
+	/**
+	 * A later spawn of the same delve, including the shielded form, keeps
+	 * using the fight already open for that level.
+	 */
+	void joinDoomSurface(@Nullable Integer npcIndex, int level)
+	{
+		if (npcIndex == null || level <= 0)
+		{
+			return;
+		}
+		Fight fight = surfaceByLevel.get(level);
+		if (fight == null || fight.isClosed())
+		{
+			return;
+		}
+		open.put(npcKey(npcIndex), fight);
+		flushQueuedFor(fight, npcIndex);
+	}
+
+	/** The surface boss was gone and is back. The gap is not lost ticks. */
+	void resumeDoomSurface(int tick)
+	{
+		for (Fight fight : surfaceByLevel.values())
+		{
+			if (!fight.isClosed())
+			{
+				fight.notePhaseResume(tick);
+			}
+		}
+	}
+
+	boolean hasOpenDoomSurface()
+	{
+		for (Fight fight : surfaceByLevel.values())
+		{
+			if (!fight.isClosed())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Closes the surface fight once the delve is over. A kill is the boss
+	 * dying. Leaving or wiping closes it without a kill.
+	 */
+	void finishDoomSurface(int tick, boolean killed)
+	{
+		if (tick > lastTick)
+		{
+			lastTick = tick;
+		}
+		List<Fight> finishing = new ArrayList<>();
+		for (Fight fight : surfaceByLevel.values())
+		{
+			if (!fight.isClosed())
+			{
+				finishing.add(fight);
+			}
+		}
+		for (Fight fight : finishing)
+		{
+			int end = fight.lastTick();
+			if (killed)
+			{
+				fight.closeKilled(end);
+			}
+			else
+			{
+				fight.closeQuiet(end);
+			}
+			String key = fight.getNpcIndex() == null ? null : npcKey(fight.getNpcIndex());
+			detach(fight, key);
+		}
+	}
+
+	private void finishLowerSurfaces(int level, Fight current)
+	{
+		List<Fight> earlier = new ArrayList<>();
+		for (Map.Entry<Integer, Fight> entry : surfaceByLevel.entrySet())
+		{
+			if (entry.getKey() < level && entry.getValue() != current && !entry.getValue().isClosed())
+			{
+				earlier.add(entry.getValue());
+			}
+		}
+		for (Fight previous : earlier)
+		{
+			previous.closeKilled(previous.lastTick());
+			String key = previous.getNpcIndex() == null ? null : npcKey(previous.getNpcIndex());
+			detach(previous, key);
+		}
+	}
+
+	private void detach(Fight fight, @Nullable String primaryKey)
+	{
+		open.entrySet().removeIf(entry -> entry.getValue() == fight);
+		if (primaryKey != null)
+		{
+			lastClosed.put(primaryKey, fight);
+		}
+		unmapSurface(fight);
+	}
+
+	private void unmapSurface(Fight fight)
+	{
+		if (fight.getDelve() != null && surfaceByLevel.get(fight.getDelve()) == fight)
+		{
+			surfaceByLevel.remove(fight.getDelve());
+			return;
+		}
+		surfaceByLevel.values().removeIf(mapped -> mapped == fight);
+	}
+
+	private void flushQueuedFor(Fight fight, int npcIndex)
+	{
+		Iterator<AttackSwing> iterator = queued.iterator();
+		while (iterator.hasNext())
+		{
+			AttackSwing swing = iterator.next();
+			if (!Objects.equals(swing.getNpcIndex(), npcIndex))
+			{
+				continue;
+			}
+			if (lastTick - swing.getTick() <= WEAPON_WINDOW)
+			{
+				fight.addAttack(swing);
+			}
+			iterator.remove();
 		}
 	}
 
@@ -347,14 +518,12 @@ final class FightTracker
 		}
 		fights.remove(fight);
 		String key = key(fight);
-		if (open.get(key) == fight)
-		{
-			open.remove(key);
-		}
+		open.entrySet().removeIf(entry -> entry.getValue() == fight);
 		if (lastClosed.get(key) == fight)
 		{
 			lastClosed.remove(key);
 		}
+		unmapSurface(fight);
 	}
 
 	void forget(HitRecord hit)
@@ -376,14 +545,12 @@ final class FightTracker
 		fights.remove(fight);
 		byId.remove(fight.getId());
 		String key = key(fight);
-		if (open.get(key) == fight)
-		{
-			open.remove(key);
-		}
+		open.entrySet().removeIf(entry -> entry.getValue() == fight);
 		if (lastClosed.get(key) == fight)
 		{
 			lastClosed.remove(key);
 		}
+		unmapSurface(fight);
 	}
 
 	void clear()
@@ -391,6 +558,7 @@ final class FightTracker
 		fights.clear();
 		open.clear();
 		lastClosed.clear();
+		surfaceByLevel.clear();
 		byId.clear();
 		queued.clear();
 		activeTicks.clear();
