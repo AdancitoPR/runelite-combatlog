@@ -6,12 +6,15 @@ import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
+import net.runelite.api.gameval.NpcID;
+import net.runelite.api.gameval.SpotanimID;
 import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -484,6 +487,104 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void doomDelveSticksToTheFightItWasReadOn()
+	{
+		assertTrue(DoomDelve.isDoom(NpcID.DOM_BOSS));
+		assertTrue(DoomDelve.isDoom(NpcID.DOM_BOSS_SHIELDED));
+		assertTrue(DoomDelve.isDoom(NpcID.DOM_BOSS_BURROWED));
+		assertFalse(DoomDelve.isDoom(NpcID.DOM_DEMONIC_ENERGY));
+		assertEquals("Delve 8", DoomDelve.label(8));
+		assertNull(DoomDelve.label(0));
+		assertEquals(1, DoomDelve.level(0));
+		assertEquals(2, DoomDelve.level(1));
+		assertEquals(525, DoomDelve.maxHp(1));
+		assertEquals(650, DoomDelve.maxHp(7));
+		assertEquals(675, DoomDelve.maxHp(8));
+		assertEquals(625, DoomDelve.maxHp(9));
+		assertEquals(625, DoomDelve.maxHp(12));
+		assertEquals("Delve 4 · HP: 600", DoomDelve.detail(4));
+
+		CombatLog log = new CombatLog(10);
+		log.noteDelve(4, 3);
+		log.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 20));
+		log.noteDelve(4, 4);
+		log.noteDelve(4, 5);
+		log.noteMaxHp(4, 525);
+		log.closeLife(4, 30);
+		log.noteDelve(4, 6);
+		Fight fight = log.summarize(30_000L, 10).getFights().get(0);
+		assertEquals(Integer.valueOf(4), fight.getDelve());
+		assertEquals(Integer.valueOf(600), fight.getMaxHp());
+
+		log.add(npcHit(40, "Doom of Mokhaiotl", 9, NpcID.DOM_BOSS_SHIELDED, 12));
+		log.noteDelve(9, 5);
+		List<Fight> fights = log.summarize(40_000L, 10).getFights();
+		assertEquals(Integer.valueOf(5), fights.get(0).getDelve());
+		assertEquals(Integer.valueOf(625), fights.get(0).getMaxHp());
+		assertEquals(Integer.valueOf(4), fights.get(1).getDelve());
+		assertEquals(Integer.valueOf(600), fights.get(1).getMaxHp());
+	}
+
+	@Test
+	public void doomNormalPhaseStaysOneEntryPerDelve()
+	{
+		assertTrue(DoomDelve.surface(NpcID.DOM_BOSS));
+		assertTrue(DoomDelve.surface(NpcID.DOM_BOSS_SHIELDED));
+		assertFalse(DoomDelve.surface(NpcID.DOM_BOSS_BURROWED));
+		assertTrue(DoomDelve.burrowed(NpcID.DOM_BOSS_BURROWED));
+
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
+		log.noteDelve(4, 4);
+		log.noteAttack(1, 4, "Doom of Mokhaiotl", 20997, 4);
+		log.noteAttack(5, 4, "Doom of Mokhaiotl", 20997, 4);
+		log.joinDoomSurface(8, 4);
+		log.add(npcHit(20, "Doom of Mokhaiotl", 8, NpcID.DOM_BOSS_SHIELDED, 40));
+		log.noteDelve(8, 4);
+		log.add(npcHit(30, "Doom of Mokhaiotl", 12, NpcID.DOM_BOSS_BURROWED, 15));
+		log.noteDelve(12, 4);
+		log.resumeDoomSurface(50);
+		log.joinDoomSurface(15, 4);
+		log.noteAttack(50, 15, "Doom of Mokhaiotl", 20997, 4);
+		log.add(npcHit(50, "Doom of Mokhaiotl", 15, NpcID.DOM_BOSS, 25));
+		log.noteDelve(15, 4);
+
+		List<Fight> fights = log.summarize(50_000L, 10).getFights();
+		assertEquals(2, fights.size());
+		Fight surface = fights.get(0);
+		assertEquals(165, surface.damageDone());
+		assertEquals(Integer.valueOf(4), surface.getDelve());
+		assertEquals(Integer.valueOf(NpcID.DOM_BOSS), surface.getNpcId());
+		assertFalse(surface.isClosed());
+		assertEquals(15, fights.get(1).damageDone());
+		assertEquals(Integer.valueOf(NpcID.DOM_BOSS_BURROWED), fights.get(1).getNpcId());
+		assertEquals(0, FightSummary.lostTicks(surface));
+
+		log.finishDoomSurface(60, true);
+		fights = log.summarize(60_000L, 10).getFights();
+		assertTrue(fights.get(0).isKilled());
+		assertEquals(165, fights.get(0).damageDone());
+		assertFalse(fights.get(1).isKilled());
+
+		log.add(npcHit(70, "Doom of Mokhaiotl", 20, NpcID.DOM_BOSS, 10));
+		log.noteDelve(20, 5);
+		fights = log.summarize(70_000L, 10).getFights();
+		assertEquals(Integer.valueOf(5), fights.get(0).getDelve());
+		assertEquals(10, fights.get(0).damageDone());
+		Fight earlier = null;
+		for (Fight fight : fights)
+		{
+			if (Integer.valueOf(4).equals(fight.getDelve()) && Integer.valueOf(NpcID.DOM_BOSS).equals(fight.getNpcId()))
+			{
+				earlier = fight;
+			}
+		}
+		assertNotNull(earlier);
+		assertTrue(earlier.isKilled());
+		assertEquals(165, earlier.damageDone());
+	}
+
+	@Test
 	public void noteMaxHpStaysOnTheClosedFight()
 	{
 		CombatLog log = new CombatLog(10);
@@ -622,6 +723,11 @@ public class CombatLogTest
 		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1245, "Cerberus", false));
 		assertEquals(CombatStyle.MAGIC, IncomingStyles.projectileStyle(1242, "Cerberus", false));
 		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(1477, "Vorkath", true));
+		assertEquals(CombatStyle.MAGIC, IncomingStyles.projectileStyle(SpotanimID.VFX_STANDARD_PROJECTILE_MAGIC, "Doom of Mokhaiotl", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(SpotanimID.VFX_STANDARD_PROJECTILE_RANGE, "Doom of Mokhaiotl", false));
+		assertEquals(CombatStyle.MELEE, IncomingStyles.projectileStyle(SpotanimID.VFX_STANDARD_PROJECTILE_MELEE, "Doom of Mokhaiotl", false));
+		assertEquals(CombatStyle.MAGIC, IncomingStyles.projectileStyle(SpotanimID.VFX_ROCK_PROJECTILE_LAUNCH_MAGIC, "Doom of Mokhaiotl", false));
+		assertEquals(CombatStyle.RANGED, IncomingStyles.projectileStyle(SpotanimID.VFX_ROCK_PROJECTILE_LAUNCH_RANGE, "Doom of Mokhaiotl", false));
 
 		IncomingStyles cerberus = new IncomingStyles();
 		assertEquals(CombatStyle.MELEE, cerberus.styleFor(5, 2000, "Cerberus"));

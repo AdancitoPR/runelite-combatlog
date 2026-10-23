@@ -7,6 +7,7 @@ import java.util.Objects;
 import javax.annotation.Nullable;
 import net.runelite.api.Actor;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.gameval.SpotanimID;
 
 /**
  * Remembers projectiles aimed at the player so an incoming hit can be marked
@@ -195,6 +196,10 @@ final class IncomingStyles
 	 */
 	static CombatStyle projectileStyle(int projectileId, @Nullable String name, boolean markedMagic)
 	{
+		if (isMeleeProjectile(projectileId))
+		{
+			return CombatStyle.MELEE;
+		}
 		if (isRangedProjectile(projectileId))
 		{
 			return CombatStyle.RANGED;
@@ -204,6 +209,11 @@ final class IncomingStyles
 			return CombatStyle.MAGIC;
 		}
 		return CombatStyle.RANGED;
+	}
+
+	static boolean isMeleeProjectile(int projectileId)
+	{
+		return projectileId == SpotanimID.VFX_STANDARD_PROJECTILE_MELEE;
 	}
 
 	static boolean isMagicProjectile(int projectileId)
@@ -227,6 +237,9 @@ final class IncomingStyles
 			case 1708: // Hunllef magic
 			case 1713:
 			case 1714: // Hunllef prayer
+			case SpotanimID.VFX_STANDARD_PROJECTILE_MAGIC: // Doom magic orb
+			case SpotanimID.VFX_ROCK_PROJECTILE_LAUNCH_MAGIC: // Doom rock, magic
+			case SpotanimID.VFX_ROCK_PROJECTILE_SPLIT_MAGIC:
 				return true;
 			default:
 				return false;
@@ -249,6 +262,9 @@ final class IncomingStyles
 			case 1663: // Hydra ranged
 			case 1711:
 			case 1712: // Hunllef ranged
+			case SpotanimID.VFX_STANDARD_PROJECTILE_RANGE: // Doom ranged orb
+			case SpotanimID.VFX_ROCK_PROJECTILE_LAUNCH_RANGE: // Doom rock, ranged
+			case SpotanimID.VFX_ROCK_PROJECTILE_SPLIT_RANGE:
 				return true;
 			default:
 				return false;

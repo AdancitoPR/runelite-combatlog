@@ -118,6 +118,48 @@ public class CombatLog
 		}
 	}
 
+	public void noteDelve(@Nullable Integer npcIndex, int level)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.noteDelve(npcIndex, level);
+		}
+	}
+
+	public void joinDoomSurface(@Nullable Integer npcIndex, int level)
+	{
+		synchronized (lock)
+		{
+			fights.joinDoomSurface(npcIndex, level);
+		}
+	}
+
+	public void resumeDoomSurface(int tick)
+	{
+		synchronized (lock)
+		{
+			fights.resumeDoomSurface(tick);
+		}
+	}
+
+	public boolean hasOpenDoomSurface()
+	{
+		synchronized (lock)
+		{
+			return fights.hasOpenDoomSurface();
+		}
+	}
+
+	public void finishDoomSurface(int tick, boolean killed)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.finishDoomSurface(tick, killed);
+		}
+	}
+
 	public void noteAttack(int tick, @Nullable Integer npcIndex, String name, @Nullable Integer weaponItemId, int speed)
 	{
 		synchronized (lock)

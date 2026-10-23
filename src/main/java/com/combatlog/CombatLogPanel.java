@@ -730,6 +730,15 @@ class CombatLogPanel extends PluginPanel
 			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
 		}
 		block.add(fightHeader(fight, open));
+		String delve = DoomDelve.detail(fight.getDelve());
+		if (delve != null)
+		{
+			JLabel delveLabel = new JLabel(delve);
+			delveLabel.setFont(uiFont());
+			delveLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			delveLabel.setAlignmentX(LEFT_ALIGNMENT);
+			block.add(delveLabel);
+		}
 		if (open)
 		{
 			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
@@ -786,13 +795,31 @@ class CombatLogPanel extends PluginPanel
 		named.add(name, BorderLayout.CENTER);
 
 		Integer maxHp = null;
+		boolean sameHp = true;
+		boolean delveHp = false;
 		for (Fight fight : group)
 		{
-			if (fight.getMaxHp() != null)
+			if (fight.getDelve() != null)
+			{
+				delveHp = true;
+			}
+			if (fight.getMaxHp() == null)
+			{
+				continue;
+			}
+			if (maxHp == null)
 			{
 				maxHp = fight.getMaxHp();
+			}
+			else if (!maxHp.equals(fight.getMaxHp()))
+			{
+				sameHp = false;
 				break;
 			}
+		}
+		if (!sameHp || delveHp)
+		{
+			maxHp = null;
 		}
 		row.add(named, BorderLayout.CENTER);
 		if (maxHp != null)
