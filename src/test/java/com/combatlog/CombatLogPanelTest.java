@@ -214,6 +214,34 @@ public class CombatLogPanelTest
 	}
 
 	@Test
+	public void recentFightsStayAboveOlderOnes() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(hit("Goblin", 1, 5, 1));
+			log.closeLife(1, 6);
+			log.add(hit("Goblin", 2, 11, 20));
+			log.closeLife(2, 26);
+			log.add(hit("Rat", 3, 9, 40));
+			log.closeLife(3, 46);
+			CombatLogPanel panel = new CombatLogPanel(log, config(10), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			assertTrue(labelIndex(panel, "Rat") < labelIndex(panel, "Goblin"));
+			assertTrue(labelIndex(panel, "11") < labelIndex(panel, "5"));
+
+			CombatLog mixed = new CombatLog(10);
+			mixed.add(hit("Goblin", 1, 5, 1));
+			mixed.add(hit("Rat", 2, 9, 40));
+			mixed.closeLife(2, 46);
+			CombatLogPanel mixedPanel = new CombatLogPanel(mixed, config(10), new MonsterIcons(), new WeaponIcons(null));
+			mixedPanel.refresh();
+			assertTrue(labelIndex(mixedPanel, "Rat") < labelIndex(mixedPanel, "Goblin"));
+		});
+	}
+
+	@Test
 	public void groupHeaderShowsMaxHpAndTheFightKeepsDamage() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->
@@ -434,6 +462,33 @@ public class CombatLogPanelTest
 			}
 		}
 		return null;
+	}
+
+	private static int labelIndex(Component component, String text)
+	{
+		int[] index = {-1, 0};
+		walkLabels(component, text, index);
+		return index[0];
+	}
+
+	private static void walkLabels(Component component, String text, int[] index)
+	{
+		if (component instanceof JLabel && text.equals(((JLabel) component).getText()))
+		{
+			if (index[0] < 0)
+			{
+				index[0] = index[1];
+			}
+		}
+		index[1]++;
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				walkLabels(container.getComponent(i), text, index);
+			}
+		}
 	}
 
 	private static int countLabels(Component component, String text)

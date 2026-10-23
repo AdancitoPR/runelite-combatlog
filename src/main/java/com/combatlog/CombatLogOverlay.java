@@ -110,7 +110,7 @@ class CombatLogOverlay extends OverlayPanel
 					.leftColor(BLOCK_COLOR)
 					.build());
 			}
-			panelComponent.getChildren().add(fightTitle(fight));
+			panelComponent.getChildren().add(fightTitle(fight, snapshot.getView()));
 			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
 			{
 				if (shown >= limit)
@@ -183,15 +183,18 @@ class CombatLogOverlay extends OverlayPanel
 			.build();
 	}
 
-	private LayoutableRenderableEntity fightTitle(Fight fight)
+	private LayoutableRenderableEntity fightTitle(Fight fight, DamageView view)
 	{
+		boolean taken = fight.showsTaken(view);
 		LineComponent line = LineComponent.builder()
 			.left(fight.getName())
 			.leftColor(fight.getKind() == TargetKind.PLAYER ? PLAYER_COLOR : Color.WHITE)
-			.right(CombatLogFormatter.formatDamage(fight.damageDone()))
-			.rightColor(DamageColors.OUTGOING)
+			.right(CombatLogFormatter.formatDamage(fight.headerAmount(view)))
+			.rightColor(taken ? DamageColors.INCOMING : DamageColors.OUTGOING)
 			.build();
-		BufferedImage monster = fight.getNpcId() == null ? null : monsterIcons.get(fight.getNpcId());
+		BufferedImage monster = fight.getKind() == TargetKind.PLAYER
+			? PlayerIcon.image(fight, monsterIcons, weaponIcons)
+			: fight.getNpcId() == null ? null : monsterIcons.get(fight.getNpcId());
 		if (monster == null)
 		{
 			return line;
@@ -229,6 +232,10 @@ class CombatLogOverlay extends OverlayPanel
 		if (hit.getSource() == DamageSource.THRALL)
 		{
 			return monsterIcons.get(Thralls.iconId(hit));
+		}
+		if (hit.getDirection() == DamageDirection.INCOMING && hit.getWeaponItemId() != null)
+		{
+			return weaponIcons.get(hit.getWeaponItemId());
 		}
 		if (hit.getDirection() == DamageDirection.INCOMING && hit.getCombatStyle() != null)
 		{
