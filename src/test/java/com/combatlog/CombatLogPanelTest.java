@@ -109,7 +109,7 @@ public class CombatLogPanelTest
 	}
 
 	@Test
-	public void plusOnAGroupedFightOpensThatKill() throws Exception
+	public void latestFinishedFightStaysOpenUntilTheNextOneFinishes() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->
 		{
@@ -119,12 +119,97 @@ public class CombatLogPanelTest
 			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
 			panel.refresh();
 
+			assertEquals(0, countLabels(panel, "+"));
+			assertNotNull(findLabel(panel, "Dealt"));
+
+			log.add(new HitRecord(2_000L, "Bear", TargetKind.NPC, 105, 2, null, 9, HitKind.HIT, null));
+			log.closeLife(2, 16);
+			panel.refresh();
+
 			assertEquals(1, countLabels(panel, "+"));
-			click(findLabel(panel, "+"));
-			assertEquals(1, countLabels(panel, "+"));
+			assertNotNull(findLabel(panel, "Dealt"));
+			assertEquals(1, countLabels(panel, "27"));
 			click(findLabel(panel, "+"));
 			assertEquals(0, countLabels(panel, "+"));
-			assertEquals(2, countLabels(panel, "-"));
+			assertEquals(2, countLabels(panel, "27"));
+		});
+	}
+
+	@Test
+	public void openFightSettingChoosesHowManyLogsStayOpen() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(new HitRecord(1_000L, "Bear", TargetKind.NPC, 105, 1, null, 27, HitKind.HIT, null));
+			log.closeLife(1, 8);
+			log.add(new HitRecord(2_000L, "Bear", TargetKind.NPC, 105, 2, null, 9, HitKind.HIT, null));
+			log.closeLife(2, 16);
+
+			CombatLogPanel none = new CombatLogPanel(log, config(0), new MonsterIcons(), new WeaponIcons(null));
+			none.refresh();
+			assertEquals(1, countLabels(none, "+"));
+			assertNull(findLabel(none, "Dealt"));
+
+			CombatLogPanel two = new CombatLogPanel(log, config(2), new MonsterIcons(), new WeaponIcons(null));
+			two.refresh();
+			assertEquals(0, countLabels(two, "+"));
+			assertEquals(2, countLabels(two, "Dealt"));
+		});
+	}
+
+	@Test
+	public void manuallyOpenedFightCollapsesWhenANewerFightFinishes() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(new HitRecord(1_000L, "Bear", TargetKind.NPC, 105, 1, null, 27, HitKind.HIT, null));
+			log.closeLife(1, 8);
+			log.add(new HitRecord(2_000L, "Bear", TargetKind.NPC, 105, 2, null, 9, HitKind.HIT, null));
+			log.closeLife(2, 16);
+			CombatLogPanel panel = new CombatLogPanel(log, config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			click(findLabel(panel, "+"));
+			assertEquals(0, countLabels(panel, "+"));
+			assertEquals(2, countLabels(panel, "Dealt"));
+
+			log.add(new HitRecord(3_000L, "Bear", TargetKind.NPC, 105, 3, null, 4, HitKind.HIT, null));
+			log.closeLife(3, 24);
+			panel.refresh();
+
+			assertEquals(2, countLabels(panel, "+"));
+			assertEquals(1, countLabels(panel, "Dealt"));
+			assertEquals(1, countLabels(panel, "27"));
+			assertEquals(1, countLabels(panel, "9"));
+			assertEquals(2, countLabels(panel, "4"));
+		});
+	}
+
+	@Test
+	public void openedGroupCollapsesWhenItsFightsLeaveTheNewestWindow() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.add(hit("Jungle spider", 1, 31, 10));
+			log.closeLife(1, 16);
+			log.add(hit("Snake", 2, 6, 30));
+			log.closeLife(2, 32);
+			CombatLogPanel panel = new CombatLogPanel(log, config(1), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			click(findLabel(panel, "+"));
+			assertEquals(1, countLabels(panel, "31"));
+
+			log.add(hit("Gnome", 3, 3, 50));
+			log.closeLife(3, 52);
+			panel.refresh();
+
+			assertEquals(0, countLabels(panel, "31"));
+			assertEquals(1, countLabels(panel, "Dealt"));
+			assertEquals(2, countLabels(panel, "3"));
 		});
 	}
 
@@ -141,11 +226,8 @@ public class CombatLogPanelTest
 			panel.refresh();
 
 			assertNotNull(findLabel(panel, "HP: 19"));
-			int damageLabels = countLabels(panel, "32");
-
-			click(findLabel(panel, "+"));
-			assertNotNull(findLabel(panel, "HP: 19"));
-			assertEquals(damageLabels + 1, countLabels(panel, "32"));
+			assertNotNull(findLabel(panel, "Dealt"));
+			assertTrue(countLabels(panel, "32") >= 2);
 		});
 	}
 
@@ -302,6 +384,11 @@ public class CombatLogPanelTest
 		});
 	}
 
+	private static HitRecord hit(String name, int index, int amount, int tick)
+	{
+		return new HitRecord(tick * 1000L, name, TargetKind.NPC, 1, index, null, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, tick);
+	}
+
 	private static JLabel findTooltip(Component component, String tooltip)
 	{
 		if (component instanceof JLabel && tooltip.equals(((JLabel) component).getToolTipText()))
@@ -386,11 +473,20 @@ public class CombatLogPanelTest
 
 	private static CombatLogConfig config()
 	{
+		return config(1);
+	}
+
+	private static CombatLogConfig config(int openFights)
+	{
 		return (CombatLogConfig) Proxy.newProxyInstance(
 			CombatLogConfig.class.getClassLoader(),
 			new Class[]{CombatLogConfig.class},
 			(proxy, method, args) ->
 			{
+				if ("openFights".equals(method.getName()))
+				{
+					return Integer.valueOf(openFights);
+				}
 				if (method.getReturnType() == boolean.class)
 				{
 					return Boolean.TRUE;

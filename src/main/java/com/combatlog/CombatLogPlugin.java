@@ -573,7 +573,7 @@ public class CombatLogPlugin extends Plugin
 			panel.setDamageView(config.damageView());
 			queueRefresh();
 		}
-		else if ("damageAmount".equals(event.getKey()))
+		else if ("damageAmount".equals(event.getKey()) || "openFights".equals(event.getKey()))
 		{
 			queueRefresh();
 		}
