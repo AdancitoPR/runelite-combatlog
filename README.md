@@ -44,11 +44,11 @@ The log is kept on logout unless Clear on logout is on. A world hop keeps it.
 | Log length | 300 | Drop the oldest rows after this. |
 | Clear on logout | Off | World hops keep the log. |
 | Damage view | Outgoing | Outgoing, incoming, or both. The sidebar icons change this too. |
-| Download monster icons | On | Loads NPC pictures from oldschool.runescape.wiki and keeps them on disk. Sends the NPC id to that site. Off stops new requests; icons already loaded still show. |
+| Download monster icons | On | Loads NPC pictures hosted for this plugin and keeps them on disk. Sends the NPC id to GitHub. Off stops new requests; icons already loaded still show. |
 | Show overlay | On | Recent hits on the game view. |
 | Overlay rows | 6 | How many hits the overlay lists. |
 | Overlay width | 140px | From 120 to 400. |
 
 ## Third-party requests
 
-The only network request the plugin makes of its own is for monster icons. It asks oldschool.runescape.wiki for the picture of an NPC id, then downloads that picture from the same site. The request uses a user agent that names this plugin, and the picture is saved in the plugin's RuneLite data folder so it is not downloaded again. Turn off Download monster icons to stop new requests. Item and weapon icons come from RuneLite.
+The only network request the plugin makes of its own is for monster icons. It downloads the picture for an NPC id from the npc-icons branch of this repository on GitHub. The request uses a user agent that names this plugin, and the picture is saved in the plugin's RuneLite data folder so it is not downloaded again. Turn off Download monster icons to stop new requests. Item and weapon icons come from RuneLite. The pictures were taken from the Old School RuneScape Wiki and are credited on that branch.

@@ -115,7 +115,7 @@ public interface CombatLogConfig extends Config
 	@ConfigItem(
 		keyName = "monsterIcons",
 		name = "Download monster icons",
-		description = "Loads NPC pictures from oldschool.runescape.wiki and keeps them on disk. Sends the NPC id to that site.",
+		description = "Loads NPC pictures hosted for this plugin and keeps them on disk. Sends the NPC id to GitHub.",
 		position = 9,
 		section = logSection
 	)

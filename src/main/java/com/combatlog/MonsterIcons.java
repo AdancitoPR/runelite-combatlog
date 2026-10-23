@@ -23,8 +23,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Small transparent renders of the NPC that was hit. Pictures come from the
- * Old School RuneScape Wiki and are kept on disk in the plugin's data folder.
+ * Small transparent renders of the NPC that was hit. Pictures are hosted on
+ * this plugin's {@code npc-icons} branch and kept on disk in the plugin folder.
  */
 @Slf4j
 @Singleton
@@ -33,7 +33,7 @@ class MonsterIcons
 	static final int SIZE = 26;
 	static final String USER_AGENT = "Detailed Combat Log (RuneLite plugin; https://github.com/AdancitoPR/runelite-combatlog)";
 	private static final int MAX_BYTES = 2_000_000;
-	private static final HttpUrl WIKI = HttpUrl.get("https://oldschool.runescape.wiki/");
+	private static final String ICON_URL = "https://raw.githubusercontent.com/AdancitoPR/runelite-combatlog/npc-icons/icons/%d.png";
 
 	@Nullable
 	private final OkHttpClient http;
@@ -112,51 +112,18 @@ class MonsterIcons
 			pending.remove(npcId);
 			return null;
 		}
-		requestLookup(npcId);
+		requestIcon(npcId);
 		return null;
 	}
 
-	private void requestLookup(int npcId)
+	static HttpUrl iconUrl(int npcId)
 	{
-		HttpUrl url = WIKI.newBuilder()
-			.addPathSegment("api.php")
-			.addQueryParameter("action", "bucket")
-			.addQueryParameter("format", "json")
-			.addQueryParameter("query", "bucket('infobox_monster').select('image').where('id', " + npcId + ").limit(1).run()")
-			.build();
-		http.newCall(request(url)).enqueue(new Callback()
-		{
-			@Override
-			public void onFailure(Call call, IOException error)
-			{
-				finish(npcId, null, error);
-			}
-
-			@Override
-			public void onResponse(Call call, Response response)
-			{
-				try (ResponseBody body = response.body())
-				{
-					String json = response.isSuccessful() && body != null ? body.string() : null;
-					String file = json == null ? null : imageFile(json);
-					if (file == null)
-					{
-						finish(npcId, null, null);
-						return;
-					}
-					requestImage(npcId, file, true);
-				}
-				catch (IOException ex)
-				{
-					finish(npcId, null, ex);
-				}
-			}
-		});
+		return HttpUrl.get(String.format(ICON_URL, npcId));
 	}
 
-	private void requestImage(int npcId, String fileName, boolean thumb)
+	private void requestIcon(int npcId)
 	{
-		http.newCall(request(imageUrl(fileName, thumb))).enqueue(new Callback()
+		http.newCall(request(iconUrl(npcId))).enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException error)
@@ -169,17 +136,7 @@ class MonsterIcons
 			{
 				try (ResponseBody body = response.body())
 				{
-					if (!response.isSuccessful())
-					{
-						if (thumb)
-						{
-							requestImage(npcId, fileName, false);
-							return;
-						}
-						finish(npcId, null, null);
-						return;
-					}
-					byte[] bytes = body == null ? null : body.bytes();
+					byte[] bytes = response.isSuccessful() && body != null ? body.bytes() : null;
 					finish(npcId, bytes, null);
 				}
 				catch (IOException ex)
@@ -195,48 +152,6 @@ class MonsterIcons
 		return new Request.Builder()
 			.url(url)
 			.header("User-Agent", USER_AGENT)
-			.build();
-	}
-
-	/**
-	 * The wiki file name from a bucket response, with spaces turned into underscores.
-	 */
-	@Nullable
-	static String imageFile(@Nullable String json)
-	{
-		if (json == null)
-		{
-			return null;
-		}
-		int file = json.indexOf("File:");
-		if (file < 0)
-		{
-			return null;
-		}
-		int end = json.indexOf('"', file);
-		if (end < 0)
-		{
-			return null;
-		}
-		String name = json.substring(file + "File:".length(), end).replace(' ', '_');
-		if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.contains(".."))
-		{
-			return null;
-		}
-		return name;
-	}
-
-	static HttpUrl imageUrl(String fileName, boolean thumb)
-	{
-		HttpUrl.Builder builder = WIKI.newBuilder().addPathSegment("images");
-		if (!thumb)
-		{
-			return builder.addPathSegment(fileName).build();
-		}
-		return builder
-			.addPathSegment("thumb")
-			.addPathSegment(fileName)
-			.addPathSegment("128px-" + fileName)
 			.build();
 	}
 

@@ -1270,13 +1270,11 @@ public class CombatLogTest
 			Thread.sleep(50);
 		}
 		assertEquals(1, requests.get());
-		assertEquals("oldschool.runescape.wiki", seen.get().url().host());
+		assertEquals("raw.githubusercontent.com", seen.get().url().host());
 		assertEquals(MonsterIcons.USER_AGENT, seen.get().header("User-Agent"));
-		assertEquals("Guard_dog.png", MonsterIcons.imageFile("{\"bucket\":[{\"image\":[\"File:Guard dog.png\"]}]}"));
-		assertNull(MonsterIcons.imageFile("{\"bucket\":[]}"));
 		assertEquals(
-			"https://oldschool.runescape.wiki/images/thumb/Guard_dog.png/128px-Guard_dog.png",
-			MonsterIcons.imageUrl("Guard_dog.png", true).toString());
+			"https://raw.githubusercontent.com/AdancitoPR/runelite-combatlog/npc-icons/icons/301.png",
+			MonsterIcons.iconUrl(301).toString());
 	}
 
 	@Test
