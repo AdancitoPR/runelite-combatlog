@@ -79,6 +79,24 @@ public final class Fight
 		return Collections.unmodifiableList(attacks);
 	}
 
+	@Nullable
+	public Integer getHeadItemId()
+	{
+		return headItemId;
+	}
+
+	@Nullable
+	public String getHeadItemName()
+	{
+		return headItemName;
+	}
+
+	void setHead(int headItemId, @Nullable String headItemName)
+	{
+		this.headItemId = headItemId;
+		this.headItemName = headItemId > 0 ? headItemName : null;
+	}
+
 	public int getStartTick()
 	{
 		return startTick;
@@ -264,6 +282,24 @@ public final class Fight
 	public int damageDone()
 	{
 		return weaponDamage() + thrallDamage() + extraDamage();
+	}
+
+	/**
+	 * Incoming shows damage taken. Both does too when nothing was dealt, so a
+	 * fight that only received hits is not listed as zero.
+	 */
+	public boolean showsTaken(DamageView view)
+	{
+		if (view == DamageView.INCOMING)
+		{
+			return true;
+		}
+		return view == DamageView.BOTH && damageDone() == 0 && damageTaken() > 0;
+	}
+
+	public int headerAmount(DamageView view)
+	{
+		return showsTaken(view) ? damageTaken() : damageDone();
 	}
 
 	public int weaponDamage()

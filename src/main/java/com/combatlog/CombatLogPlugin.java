@@ -24,6 +24,7 @@ import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Item;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
@@ -55,6 +56,7 @@ import net.runelite.client.game.NPCManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.util.Text;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.AsyncBufferedImage;
@@ -136,6 +138,7 @@ public class CombatLogPlugin extends Plugin
 	private Integer swingStyleIcon;
 	private final List<PendingHit> pending = new ArrayList<>();
 	private final IncomingStyles incomingStyles = new IncomingStyles();
+	private final IncomingWeapons incomingWeapons = new IncomingWeapons();
 	private int lastHitTick = -100;
 	@Nullable
 	private Integer lastSeenWeapon;
@@ -186,6 +189,7 @@ public class CombatLogPlugin extends Plugin
 		doomDied = false;
 		incomingByTick.clear();
 		incomingStyles.clear();
+		incomingWeapons.clear();
 		specMarker.reset();
 		lastSpecPercent = -1;
 		lastVengeance = -1;
@@ -342,7 +346,7 @@ public class CombatLogPlugin extends Plugin
 			{
 				return;
 			}
-			if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
+			if (target instanceof NPC && (isPet((NPC) target) || ObjectFilter.ignored(npcId((NPC) target), target.getName())))
 			{
 				return;
 			}
@@ -350,6 +354,10 @@ public class CombatLogPlugin extends Plugin
 			if (target instanceof NPC && !isThrall((NPC) target))
 			{
 				rememberOpponent((NPC) target);
+			}
+			else if (target instanceof Player)
+			{
+				notePlayerHead((Player) target);
 			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
@@ -364,6 +372,11 @@ public class CombatLogPlugin extends Plugin
 			specMarker.retarget(index, tick);
 			int reserved = specMarker.reserved(index);
 			playerAttackSplats = Math.max(reserved, attackSplats(weapon, target));
+			return;
+		}
+		if (actor instanceof Player)
+		{
+			noteOpponentSwing((Player) actor, tick);
 			return;
 		}
 		if (actor instanceof NPC && isThrall((NPC) actor))
@@ -504,7 +517,7 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
-			if (ObjectFilter.ignored(npcId, npc.getName()))
+			if (isPet(npc) || ObjectFilter.ignored(npcId, npc.getName()))
 			{
 				return;
 			}
@@ -521,6 +534,12 @@ public class CombatLogPlugin extends Plugin
 		else if (actor instanceof Player)
 		{
 			targetKind = TargetKind.PLAYER;
+			notePlayerHead((Player) actor);
+			if (status != null && !combatLog.fightingPlayer(actor.getName(), tick))
+			{
+				// Poison, venom, or burn on a player you are not fighting is someone else's.
+				return;
+			}
 		}
 
 		int amount = event.getHitsplat().getAmount();
@@ -635,6 +654,12 @@ public class CombatLogPlugin extends Plugin
 		String name;
 		Integer npcId;
 		Integer npcIndex;
+		TargetKind targetKind = TargetKind.NPC;
+		if (attacker != null && isPet(attacker))
+		{
+			attacker = null;
+			index = null;
+		}
 		if (attacker != null)
 		{
 			name = attacker.getName() == null || attacker.getName().isEmpty() ? "Unknown" : attacker.getName();
@@ -655,7 +680,16 @@ public class CombatLogPlugin extends Plugin
 		}
 		else
 		{
-			name = "Taken";
+			String playerName = incomingPlayerName();
+			if (playerName != null)
+			{
+				name = playerName;
+				targetKind = TargetKind.PLAYER;
+			}
+			else
+			{
+				name = "Taken";
+			}
 			npcId = null;
 			npcIndex = null;
 		}
@@ -668,7 +702,7 @@ public class CombatLogPlugin extends Plugin
 			type,
 			event.getHitsplat().getAmount(),
 			name,
-			TargetKind.NPC,
+			targetKind,
 			npcId,
 			npcIndex,
 			System.currentTimeMillis(),
@@ -685,6 +719,14 @@ public class CombatLogPlugin extends Plugin
 		else if (record.getSource() == DamageSource.WEAPON)
 		{
 			record = record.withStyle(style);
+		}
+		if (targetKind == TargetKind.PLAYER && record.getSource() == DamageSource.WEAPON)
+		{
+			Integer weapon = opponentWeapon(name, tick);
+			if (weapon != null && weapon > 0)
+			{
+				record = record.withWeapon(weapon);
+			}
 		}
 		if (record.getSource() == DamageSource.WEAPON && !record.isMiss() && record.getAmount() > 0)
 		{
@@ -709,10 +751,19 @@ public class CombatLogPlugin extends Plugin
 		Actor source = projectile.getSourceActor();
 		if (source instanceof Player)
 		{
+			if (source != player && IncomingStyles.aimedAt(
+				projectile.getTargetActor(),
+				source.getInteracting(),
+				player,
+				projectile.getTargetPoint(),
+				player.getWorldLocation()))
+			{
+				noteIncomingWeapon((Player) source, client.getTickCount());
+			}
 			if (source == player && spellProjectile())
 			{
 				Actor target = projectile.getTargetActor();
-				if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
+				if (target instanceof NPC && (isPet((NPC) target) || ObjectFilter.ignored(npcId((NPC) target), target.getName())))
 				{
 					return;
 				}
@@ -724,14 +775,17 @@ public class CombatLogPlugin extends Plugin
 					{
 						return;
 					}
-					index = interacting instanceof NPC ? ((NPC) interacting).getIndex() : null;
+					if (interacting instanceof NPC && !isPet((NPC) interacting))
+					{
+						index = ((NPC) interacting).getIndex();
+					}
 				}
 				incomingStyles.notePlayerSpell(index, projectile.getEndCycle());
 			}
 			return;
 		}
 		NPC npc = source instanceof NPC ? (NPC) source : null;
-		if (npc != null && (isThrall(npc) || ObjectFilter.ignored(npcId(npc), npc.getName())))
+		if (npc != null && (isThrall(npc) || isPet(npc) || ObjectFilter.ignored(npcId(npc), npc.getName())))
 		{
 			return;
 		}
@@ -780,7 +834,7 @@ public class CombatLogPlugin extends Plugin
 			return null;
 		}
 		Actor target = player.getInteracting();
-		if (!(target instanceof NPC) || isThrall((NPC) target))
+		if (!(target instanceof NPC) || isThrall((NPC) target) || isPet((NPC) target))
 		{
 			return null;
 		}
@@ -797,7 +851,7 @@ public class CombatLogPlugin extends Plugin
 		NPC found = null;
 		for (NPC npc : npcs())
 		{
-			if (npc.getInteracting() != player || isThrall(npc))
+			if (npc.getInteracting() != player || isThrall(npc) || isPet(npc))
 			{
 				continue;
 			}
@@ -829,6 +883,10 @@ public class CombatLogPlugin extends Plugin
 
 	private void rememberOpponent(NPC npc)
 	{
+		if (isPet(npc))
+		{
+			return;
+		}
 		opponentIndex = npc.getIndex();
 		String name = npc.getName();
 		if (name != null && !name.isEmpty())
@@ -1018,9 +1076,162 @@ public class CombatLogPlugin extends Plugin
 		return weapon.getId();
 	}
 
+	private void noteOpponentSwing(Player player, int tick)
+	{
+		Player local = client.getLocalPlayer();
+		if (local == null || player == local)
+		{
+			return;
+		}
+		int animation = player.getAnimation();
+		if (animation <= 0 || animation == 829 || animation == 424)
+		{
+			return;
+		}
+		if (player.getInteracting() != local && local.getInteracting() != player)
+		{
+			return;
+		}
+		noteIncomingWeapon(player, tick);
+	}
+
+	private void noteIncomingWeapon(Player player, int tick)
+	{
+		Integer weapon = WeaponSlot.itemId(player);
+		if (weapon == null)
+		{
+			return;
+		}
+		incomingWeapons.note(player.getName(), tick, weapon);
+	}
+
+	@Nullable
+	private Integer opponentWeapon(String name, int tick)
+	{
+		Integer seen = incomingWeapons.weaponFor(name, tick);
+		if (seen != null)
+		{
+			return seen;
+		}
+		return WeaponSlot.itemId(playerByName(name));
+	}
+
+	@Nullable
+	private Player playerByName(@Nullable String name)
+	{
+		WorldView worldView = client.getTopLevelWorldView();
+		Player local = client.getLocalPlayer();
+		if (worldView == null || name == null || name.isEmpty())
+		{
+			return null;
+		}
+		for (Player other : worldView.players())
+		{
+			if (other != null && other != local && name.equals(other.getName()))
+			{
+				return other;
+			}
+		}
+		return null;
+	}
+
+	private void notePlayerHead(Player player)
+	{
+		Integer head = HeadSlot.itemId(player);
+		if (head == null)
+		{
+			return;
+		}
+		combatLog.notePlayerHead(player.getName(), head, headItemName(head));
+	}
+
+	@Nullable
+	private String headItemName(int itemId)
+	{
+		if (itemId <= 0 || itemManager == null)
+		{
+			return null;
+		}
+		ItemComposition composition = itemManager.getItemComposition(itemId);
+		if (composition == null)
+		{
+			return null;
+		}
+		String itemName = composition.getName();
+		if (itemName == null || itemName.isEmpty() || "null".equals(itemName))
+		{
+			return null;
+		}
+		return Text.removeTags(itemName);
+	}
+
 	private boolean ignoredNpc(@Nullable NPC npc)
 	{
-		return npc != null && ObjectFilter.ignored(npcId(npc), npc.getName());
+		return npc != null && (isPet(npc) || ObjectFilter.ignored(npcId(npc), npc.getName()));
+	}
+
+	private boolean isPet(@Nullable NPC npc)
+	{
+		return Pets.isPet(npc, client.getFollower());
+	}
+
+	@Nullable
+	private String incomingPlayerName()
+	{
+		Player interacting = interactingPlayer();
+		Player aggro = solePlayerAggro();
+		String interactingName = interacting == null ? null : interacting.getName();
+		String aggroName = aggro == null ? null : aggro.getName();
+		String name = IncomingPlayer.name(interactingName, aggroName, combatLog.soleOpenPlayer());
+		Player shown = interacting != null && name != null && name.equals(interacting.getName())
+			? interacting
+			: aggro != null && name != null && name.equals(aggro.getName()) ? aggro : null;
+		if (shown != null)
+		{
+			notePlayerHead(shown);
+		}
+		return name;
+	}
+
+	@Nullable
+	private Player interactingPlayer()
+	{
+		Player player = client.getLocalPlayer();
+		if (player == null)
+		{
+			return null;
+		}
+		Actor target = player.getInteracting();
+		if (target instanceof Player && target != player)
+		{
+			return (Player) target;
+		}
+		return null;
+	}
+
+	@Nullable
+	private Player solePlayerAggro()
+	{
+		Player player = client.getLocalPlayer();
+		WorldView worldView = client.getTopLevelWorldView();
+		if (player == null || worldView == null)
+		{
+			return null;
+		}
+		Player found = null;
+		for (Player other : worldView.players())
+		{
+			if (other == null || other == player || other.getInteracting() != player)
+			{
+				continue;
+			}
+			if (found != null)
+			{
+				return null;
+			}
+			found = other;
+		}
+		return found;
 	}
 
 	private boolean ignoredIndex(@Nullable Integer index)

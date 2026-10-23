@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -460,11 +461,11 @@ class CombatLogPanel extends PluginPanel
 				+ "  \u00b7  avg " + CombatLogFormatter.formatAverage(snapshot.getAverageHit()));
 		}
 
-		rebuildFights(snapshot);
 		emptyLabel.setVisible(snapshot.isEmpty());
 		boolean hasRows = !snapshot.isEmpty();
 		copyButton.setEnabled(hasRows);
 		clearButton.setEnabled(hasRows);
+		rebuildFights(snapshot);
 
 		revalidate();
 		if (pinnedToTop)
@@ -564,38 +565,16 @@ class CombatLogPanel extends PluginPanel
 			return;
 		}
 
-		List<Fight> ongoing = new ArrayList<>();
-		List<Fight> finished = new ArrayList<>();
-		for (Fight fight : snapshot.getFights())
-		{
-			if (fight.isClosed())
-			{
-				finished.add(fight);
-			}
-			else
-			{
-				ongoing.add(fight);
-			}
-		}
-
-		hitsPanel.add(sectionLabel("Fights"));
-		hitsPanel.add(Box.createVerticalStrut(4));
-
-		int index = 0;
-		Set<Long> autoOpen = autoOpenFights(snapshot.getFights());
-		reconcileExpanded(autoOpen);
-		for (Fight fight : ongoing)
-		{
-			boolean open = expanded.containsKey(fight.getId())
-				? Boolean.TRUE.equals(expanded.get(fight.getId()))
-				: autoOpen.contains(fight.getId());
-			index = addFight(snapshot, fight, open, index, 0);
-			hitsPanel.add(groupSeparator());
-		}
+		List<Fight> ordered = new ArrayList<>(snapshot.getFights());
+		ordered.sort(CombatLogPanel::newerFight);
 
 		Map<String, List<Fight>> groups = new LinkedHashMap<>();
-		for (Fight fight : finished)
+		for (Fight fight : ordered)
 		{
+			if (!fight.isClosed())
+			{
+				continue;
+			}
 			String key = groupKey(fight);
 			List<Fight> group = groups.get(key);
 			if (group == null)
@@ -605,6 +584,13 @@ class CombatLogPanel extends PluginPanel
 			}
 			group.add(fight);
 		}
+
+		hitsPanel.add(sectionLabel("Fights"));
+		hitsPanel.add(Box.createVerticalStrut(4));
+
+		int index = 0;
+		Set<Long> autoOpen = autoOpenFights(ordered);
+		reconcileExpanded(autoOpen);
 		Set<String> autoGroups = new HashSet<>();
 		for (List<Fight> group : groups.values())
 		{
@@ -618,9 +604,24 @@ class CombatLogPanel extends PluginPanel
 			}
 		}
 		reconcileGroups(autoGroups);
-		for (List<Fight> group : groups.values())
+		Set<String> shown = new HashSet<>();
+		for (Fight fight : ordered)
 		{
-			String key = groupKey(group.get(0));
+			if (!fight.isClosed())
+			{
+				boolean open = expanded.containsKey(fight.getId())
+					? Boolean.TRUE.equals(expanded.get(fight.getId()))
+					: autoOpen.contains(fight.getId());
+				index = addFight(snapshot, fight, open, index, 0);
+				hitsPanel.add(groupSeparator());
+				continue;
+			}
+			String key = groupKey(fight);
+			if (!shown.add(key))
+			{
+				continue;
+			}
+			List<Fight> group = groups.get(key);
 			boolean holdsOpenFight = autoGroups.contains(key);
 			boolean open = groupsOpen.containsKey(key)
 				? Boolean.TRUE.equals(groupsOpen.get(key))
@@ -628,12 +629,12 @@ class CombatLogPanel extends PluginPanel
 			hitsPanel.add(groupHeader(group, snapshot, open));
 			if (open)
 			{
-				for (Fight fight : group)
+				for (Fight fightInGroup : group)
 				{
-					boolean fightOpen = expanded.containsKey(fight.getId())
-						? Boolean.TRUE.equals(expanded.get(fight.getId()))
-						: autoOpen.contains(fight.getId());
-					index = addFight(snapshot, fight, fightOpen, index, 12);
+					boolean fightOpen = expanded.containsKey(fightInGroup.getId())
+						? Boolean.TRUE.equals(expanded.get(fightInGroup.getId()))
+						: autoOpen.contains(fightInGroup.getId());
+					index = addFight(snapshot, fightInGroup, fightOpen, index, 12);
 				}
 			}
 			hitsPanel.add(groupSeparator());
@@ -780,7 +781,7 @@ class CombatLogPanel extends PluginPanel
 
 		Fight first = group.get(0);
 		HitRecord sample = first.getHits().isEmpty() ? null : first.getHits().get(0);
-		JLabel icon = sample == null ? new JLabel() : monsterIcon(sample);
+		JLabel icon = targetIcon(first, sample);
 		JLabel name = new JLabel(first.getName());
 		name.setFont(uiFont());
 		name.setForeground(first.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
@@ -907,7 +908,7 @@ class CombatLogPanel extends PluginPanel
 		menu.show(event.getComponent(), event.getX(), event.getY());
 	}
 
-	private JPanel fightHeader(Fight fight, boolean open)
+	private JPanel fightHeader(Fight fight, boolean open, DamageView view)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -922,7 +923,7 @@ class CombatLogPanel extends PluginPanel
 		toggle.setMinimumSize(toggleSize);
 
 		HitRecord sample = fight.getHits().isEmpty() ? null : fight.getHits().get(0);
-		JLabel icon = sample == null ? new JLabel() : monsterIcon(sample);
+		JLabel icon = targetIcon(fight, sample);
 		JLabel name = new JLabel(fight.getName());
 		name.setFont(uiFont());
 		name.setForeground(fight.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
@@ -936,9 +937,10 @@ class CombatLogPanel extends PluginPanel
 		named.add(nameAndIcon, BorderLayout.WEST);
 		named.add(name, BorderLayout.CENTER);
 
-		JLabel total = new JLabel(CombatLogFormatter.formatDamage(fight.damageDone()), SwingConstants.RIGHT);
+		boolean taken = fight.showsTaken(view);
+		JLabel total = new JLabel(CombatLogFormatter.formatDamage(fight.headerAmount(view)), SwingConstants.RIGHT);
 		total.setFont(uiFont());
-		total.setForeground(DamageColors.OUTGOING);
+		total.setForeground(taken ? DamageColors.INCOMING : DamageColors.OUTGOING);
 		holdWidth(total);
 
 		row.add(named, BorderLayout.CENTER);
@@ -1150,6 +1152,39 @@ class CombatLogPanel extends PluginPanel
 		copyTimer = new Timer(1200, event -> copyButton.setText("Copy"));
 		copyTimer.setRepeats(false);
 		copyTimer.start();
+	}
+
+	private JLabel targetIcon(Fight fight, @Nullable HitRecord sample)
+	{
+		if (fight.getKind() == TargetKind.PLAYER)
+		{
+			JLabel icon = iconLabel(MonsterIcons.SIZE);
+			Integer head = fight.getHeadItemId();
+			BufferedImage image = PlayerIcon.image(fight, monsterIcons, weaponIcons);
+			if (image != null)
+			{
+				icon.setIcon(new ImageIcon(image));
+			}
+			if (head != null && head > 0 && fight.getHeadItemName() != null)
+			{
+				icon.setToolTipText(fight.getHeadItemName());
+			}
+			return icon;
+		}
+		return sample == null ? iconLabel(MonsterIcons.SIZE) : monsterIcon(sample);
+	}
+
+	private static JLabel iconLabel(int size)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(false);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		Dimension box = new Dimension(size, size);
+		icon.setPreferredSize(box);
+		icon.setMinimumSize(box);
+		icon.setMaximumSize(box);
+		return icon;
 	}
 
 	private JLabel monsterIcon(HitRecord hit)
