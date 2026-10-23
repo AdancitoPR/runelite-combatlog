@@ -113,6 +113,10 @@ public class CombatLogPlugin extends Plugin
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
 	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
+	/** Ticks with no surface Doom before that delve's log is closed. */
+	private static final int DOOM_ABSENT_TICKS = 8;
+	private int doomAbsentTick = -1;
+	private boolean doomDied;
 	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
@@ -178,6 +182,8 @@ public class CombatLogPlugin extends Plugin
 		pending.clear();
 		lastHealth.clear();
 		quietDespawns.clear();
+		doomAbsentTick = -1;
+		doomDied = false;
 		incomingByTick.clear();
 		incomingStyles.clear();
 		specMarker.reset();
@@ -285,6 +291,7 @@ public class CombatLogPlugin extends Plugin
 	public void onGameTick(GameTick event)
 	{
 		int tick = client.getTickCount();
+		trackDoom(tick);
 		flushPending(tick);
 		specMarker.expire(tick);
 		incomingByTick.keySet().removeIf(old -> old < tick - 5);
@@ -300,7 +307,8 @@ public class CombatLogPlugin extends Plugin
 		{
 			int scale = npc.getHealthScale();
 			int ratio = npc.getHealthRatio();
-			if (scale > 0 && ratio == 0)
+			// Shield breaks and phase changes zero this bar without ending the delve.
+			if (scale > 0 && ratio == 0 && !DoomDelve.surface(npcId(npc)))
 			{
 				combatLog.closeLife(npc.getIndex(), tick);
 			}
@@ -331,6 +339,10 @@ public class CombatLogPlugin extends Plugin
 			}
 			Actor target = actor.getInteracting();
 			if (!(target instanceof NPC) && !(target instanceof Player))
+			{
+				return;
+			}
+			if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
 			{
 				return;
 			}
@@ -422,6 +434,15 @@ public class CombatLogPlugin extends Plugin
 		NPC npc = event.getNpc();
 		int index = npc.getIndex();
 		int tick = client.getTickCount();
+		if (DoomDelve.surface(npcId(npc)))
+		{
+			if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
+			{
+				doomDied = true;
+			}
+			lastHealth.remove(index);
+			return;
+		}
 		if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
 		{
 			combatLog.closeLife(index, tick);
@@ -483,6 +504,10 @@ public class CombatLogPlugin extends Plugin
 			targetKind = TargetKind.NPC;
 			npcId = npcId(npc);
 			npcIndex = npc.getIndex();
+			if (ObjectFilter.ignored(npcId, npc.getName()))
+			{
+				return;
+			}
 			if (status != null && combatLog.currentNpc(npcIndex, tick) == null && !combatLog.hasRecentAttack(npcIndex, tick))
 			{
 				// Burn, poison, or venom on an NPC you are not fighting is someone else's.
@@ -573,7 +598,7 @@ public class CombatLogPlugin extends Plugin
 			panel.setDamageView(config.damageView());
 			queueRefresh();
 		}
-		else if ("damageAmount".equals(event.getKey()))
+		else if ("damageAmount".equals(event.getKey()) || "openFights".equals(event.getKey()))
 		{
 			queueRefresh();
 		}
@@ -582,11 +607,29 @@ public class CombatLogPlugin extends Plugin
 	private void recordIncoming(HitsplatApplied event, int tick)
 	{
 		NPC interacting = interactingNpc();
+		if (ignoredNpc(interacting))
+		{
+			interacting = null;
+		}
+		Integer projectileIndex = incomingStyles.attackerIndex(client.getGameCycle());
+		if (ignoredIndex(projectileIndex))
+		{
+			projectileIndex = null;
+		}
+		Integer openIndex = combatLog.currentNpc(opponentIndex, tick);
+		if (ignoredIndex(openIndex))
+		{
+			openIndex = null;
+		}
 		NPC aggro = soleAggro();
+		if (ignoredNpc(aggro))
+		{
+			aggro = null;
+		}
 		Integer index = IncomingTarget.index(
 			interacting == null ? null : interacting.getIndex(),
-			incomingStyles.attackerIndex(client.getGameCycle()),
-			combatLog.currentNpc(opponentIndex, tick),
+			projectileIndex,
+			openIndex,
 			aggro == null ? null : aggro.getIndex());
 		NPC attacker = npcByIndex(index);
 		String name;
@@ -647,7 +690,9 @@ public class CombatLogPlugin extends Plugin
 		{
 			incomingByTick.computeIfAbsent(tick, key -> new ArrayList<>()).add(record.getAmount());
 		}
+		joinDoomSurface(npcIndex, npcId);
 		combatLog.add(record);
+		noteDoomDelve(npcIndex, npcId);
 		lastHitTick = tick;
 		queueRefresh();
 	}
@@ -667,10 +712,18 @@ public class CombatLogPlugin extends Plugin
 			if (source == player && spellProjectile())
 			{
 				Actor target = projectile.getTargetActor();
+				if (target instanceof NPC && ObjectFilter.ignored(npcId((NPC) target), target.getName()))
+				{
+					return;
+				}
 				Integer index = target instanceof NPC ? ((NPC) target).getIndex() : null;
 				if (index == null)
 				{
 					Actor interacting = player.getInteracting();
+					if (interacting instanceof NPC && ObjectFilter.ignored(npcId((NPC) interacting), interacting.getName()))
+					{
+						return;
+					}
 					index = interacting instanceof NPC ? ((NPC) interacting).getIndex() : null;
 				}
 				incomingStyles.notePlayerSpell(index, projectile.getEndCycle());
@@ -678,7 +731,7 @@ public class CombatLogPlugin extends Plugin
 			return;
 		}
 		NPC npc = source instanceof NPC ? (NPC) source : null;
-		if (npc != null && isThrall(npc))
+		if (npc != null && (isThrall(npc) || ObjectFilter.ignored(npcId(npc), npc.getName())))
 		{
 			return;
 		}
@@ -806,7 +859,11 @@ public class CombatLogPlugin extends Plugin
 			}
 			return 0;
 		}
-		Integer maxHp = npcManager.getHealth(npcId);
+		Integer maxHp = doomMaxHp(npcId);
+		if (maxHp == null && npcManager != null)
+		{
+			maxHp = npcManager.getHealth(npcId);
+		}
 		return Overkill.amount(amount, previous[0], previous[1], maxHp, true);
 	}
 
@@ -961,6 +1018,16 @@ public class CombatLogPlugin extends Plugin
 		return weapon.getId();
 	}
 
+	private boolean ignoredNpc(@Nullable NPC npc)
+	{
+		return npc != null && ObjectFilter.ignored(npcId(npc), npc.getName());
+	}
+
+	private boolean ignoredIndex(@Nullable Integer index)
+	{
+		return ignoredNpc(npcByIndex(index));
+	}
+
 	private static Integer npcId(NPC npc)
 	{
 		NPCComposition composition = npc.getTransformedComposition();
@@ -1042,6 +1109,91 @@ public class CombatLogPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Reads the live delve once the fight exists. The first positive value is
+	 * kept, so a later descent does not relabel this kill.
+	 */
+	/**
+	 * Keeps one surface log per delve. The shield and a respawn after burrowing
+	 * join the fight already open for this level. Burrowed stays separate.
+	 */
+	private void trackDoom(int tick)
+	{
+		int level = DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP));
+		boolean surfaceHere = false;
+		boolean doomHere = false;
+		boolean surfaceHealthy = false;
+		for (NPC npc : npcs())
+		{
+			Integer id = npcId(npc);
+			if (DoomDelve.surface(id))
+			{
+				surfaceHere = true;
+				doomHere = true;
+				if (npc.getHealthScale() <= 0 || npc.getHealthRatio() > 0)
+				{
+					surfaceHealthy = true;
+				}
+				combatLog.joinDoomSurface(npc.getIndex(), level);
+			}
+			else if (DoomDelve.burrowed(id))
+			{
+				doomHere = true;
+			}
+		}
+		if (surfaceHere)
+		{
+			if (doomAbsentTick >= 0)
+			{
+				combatLog.resumeDoomSurface(tick);
+			}
+			doomAbsentTick = -1;
+			if (surfaceHealthy)
+			{
+				doomDied = false;
+			}
+		}
+		else if (doomAbsentTick < 0 && combatLog.hasOpenDoomSurface())
+		{
+			doomAbsentTick = tick;
+		}
+		if (!doomHere && doomAbsentTick >= 0 && tick - doomAbsentTick >= DOOM_ABSENT_TICKS)
+		{
+			combatLog.finishDoomSurface(tick, doomDied);
+			doomAbsentTick = -1;
+			doomDied = false;
+		}
+	}
+
+	private void joinDoomSurface(@Nullable Integer npcIndex, @Nullable Integer npcId)
+	{
+		if (!DoomDelve.surface(npcId))
+		{
+			return;
+		}
+		combatLog.joinDoomSurface(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+	}
+
+	private void noteDoomDelve(@Nullable Integer npcIndex, @Nullable Integer npcId)
+	{
+		if (!DoomDelve.isDoom(npcId))
+		{
+			return;
+		}
+		combatLog.noteDelve(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+	}
+
+	@Nullable
+	private Integer doomMaxHp(@Nullable Integer npcId)
+	{
+		if (!DoomDelve.isDoom(npcId))
+		{
+			return null;
+		}
+		int hp = DoomDelve.maxHp(DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+		return hp > 0 ? hp : null;
+	}
+
 	private void classify(List<PendingHit> hits)
 	{
 		int tick = hits.get(0).tick;
@@ -1108,7 +1260,9 @@ public class CombatLogPlugin extends Plugin
 			{
 				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
 			}
+			joinDoomSurface(hit.npcIndex, record.getNpcId());
 			combatLog.add(record);
+			noteDoomDelve(hit.npcIndex, record.getNpcId());
 			if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
 			{
 				Integer maxHp = npcManager.getHealth(record.getNpcId());
@@ -1117,7 +1271,7 @@ public class CombatLogPlugin extends Plugin
 					combatLog.noteMaxHp(hit.npcIndex, maxHp);
 				}
 			}
-			if (hit.killed)
+			if (hit.killed && !DoomDelve.surface(record.getNpcId()))
 			{
 				combatLog.closeLife(hit.npcIndex, hit.tick);
 			}

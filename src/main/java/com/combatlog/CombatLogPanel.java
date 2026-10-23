@@ -16,9 +16,11 @@ import java.awt.event.MouseEvent;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -70,6 +72,10 @@ class CombatLogPanel extends PluginPanel
 	private DamageView selectedView;
 	private final Map<Long, Boolean> expanded = new HashMap<>();
 	private final Map<String, Boolean> groupsOpen = new HashMap<>();
+	/** Newest fights the last rebuild kept open. Manual toggles reset when this set changes. */
+	private Set<Long> appliedOpenFights = new HashSet<>();
+	/** Groups that held one of those fights. A group the player opened closes once it no longer does. */
+	private Set<String> appliedOpenGroups = new HashSet<>();
 
 	private final JPanel totalsBox = new JPanel();
 	private final JLabel detailValue = new JLabel("\u2014");
@@ -576,9 +582,13 @@ class CombatLogPanel extends PluginPanel
 		hitsPanel.add(Box.createVerticalStrut(4));
 
 		int index = 0;
+		Set<Long> autoOpen = autoOpenFights(snapshot.getFights());
+		reconcileExpanded(autoOpen);
 		for (Fight fight : ongoing)
 		{
-			boolean open = expanded.containsKey(fight.getId()) ? expanded.get(fight.getId()) : true;
+			boolean open = expanded.containsKey(fight.getId())
+				? Boolean.TRUE.equals(expanded.get(fight.getId()))
+				: autoOpen.contains(fight.getId());
 			index = addFight(snapshot, fight, open, index, 0);
 			hitsPanel.add(groupSeparator());
 		}
@@ -595,21 +605,118 @@ class CombatLogPanel extends PluginPanel
 			}
 			group.add(fight);
 		}
+		Set<String> autoGroups = new HashSet<>();
+		for (List<Fight> group : groups.values())
+		{
+			for (Fight fight : group)
+			{
+				if (autoOpen.contains(fight.getId()))
+				{
+					autoGroups.add(groupKey(fight));
+					break;
+				}
+			}
+		}
+		reconcileGroups(autoGroups);
 		for (List<Fight> group : groups.values())
 		{
 			String key = groupKey(group.get(0));
-			boolean open = Boolean.TRUE.equals(groupsOpen.get(key));
+			boolean holdsOpenFight = autoGroups.contains(key);
+			boolean open = groupsOpen.containsKey(key)
+				? Boolean.TRUE.equals(groupsOpen.get(key))
+				: holdsOpenFight;
 			hitsPanel.add(groupHeader(group, snapshot, open));
 			if (open)
 			{
 				for (Fight fight : group)
 				{
-					boolean fightOpen = Boolean.TRUE.equals(expanded.get(fight.getId()));
+					boolean fightOpen = expanded.containsKey(fight.getId())
+						? Boolean.TRUE.equals(expanded.get(fight.getId()))
+						: autoOpen.contains(fight.getId());
 					index = addFight(snapshot, fight, fightOpen, index, 12);
 				}
 			}
 			hitsPanel.add(groupSeparator());
 		}
+	}
+
+	private Set<Long> autoOpenFights(List<Fight> fights)
+	{
+		List<Fight> newest = new ArrayList<>(fights);
+		newest.sort(CombatLogPanel::newerFight);
+		Set<Long> open = new HashSet<>();
+		int limit = Math.min(openFightCount(), newest.size());
+		for (int i = 0; i < limit; i++)
+		{
+			open.add(newest.get(i).getId());
+		}
+		return open;
+	}
+
+	private int openFightCount()
+	{
+		int count = config.openFights();
+		if (count < 0)
+		{
+			return 0;
+		}
+		return Math.min(10, count);
+	}
+
+	private static int newerFight(Fight left, Fight right)
+	{
+		int ticks = Integer.compare(right.lastTick(), left.lastTick());
+		if (ticks != 0)
+		{
+			return ticks;
+		}
+		int ended = Integer.compare(right.getEndTick(), left.getEndTick());
+		if (ended != 0)
+		{
+			return ended;
+		}
+		return Long.compare(right.getId(), left.getId());
+	}
+
+	/**
+	 * The open-fights setting chooses which logs are expanded. A manual open or
+	 * close sticks while that same set of fights is the newest, then gives way
+	 * once a newer fight takes a slot.
+	 */
+	private void reconcileExpanded(Set<Long> autoOpen)
+	{
+		if (autoOpen.equals(appliedOpenFights))
+		{
+			return;
+		}
+		expanded.entrySet().removeIf(entry ->
+		{
+			boolean pinnedOpen = Boolean.TRUE.equals(entry.getValue());
+			if (pinnedOpen)
+			{
+				return !autoOpen.contains(entry.getKey());
+			}
+			return autoOpen.contains(entry.getKey());
+		});
+		appliedOpenFights = new HashSet<>(autoOpen);
+	}
+
+	private void reconcileGroups(Set<String> autoGroups)
+	{
+		if (autoGroups.equals(appliedOpenGroups))
+		{
+			return;
+		}
+		groupsOpen.entrySet().removeIf(entry ->
+		{
+			boolean pinnedOpen = Boolean.TRUE.equals(entry.getValue());
+			if (pinnedOpen)
+			{
+				return !autoGroups.contains(entry.getKey());
+			}
+			return autoGroups.contains(entry.getKey());
+		});
+		appliedOpenGroups = new HashSet<>(autoGroups);
 	}
 
 	private int addFight(CombatSnapshot snapshot, Fight fight, boolean open, int index, int leftPad)
@@ -623,6 +730,15 @@ class CombatLogPanel extends PluginPanel
 			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
 		}
 		block.add(fightHeader(fight, open));
+		String delve = DoomDelve.detail(fight.getDelve());
+		if (delve != null)
+		{
+			JLabel delveLabel = new JLabel(delve);
+			delveLabel.setFont(uiFont());
+			delveLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			delveLabel.setAlignmentX(LEFT_ALIGNMENT);
+			block.add(delveLabel);
+		}
 		if (open)
 		{
 			for (AttackRow attack : AttackRow.group(fight.visibleHits(snapshot.getView())))
@@ -679,13 +795,31 @@ class CombatLogPanel extends PluginPanel
 		named.add(name, BorderLayout.CENTER);
 
 		Integer maxHp = null;
+		boolean sameHp = true;
+		boolean delveHp = false;
 		for (Fight fight : group)
 		{
-			if (fight.getMaxHp() != null)
+			if (fight.getDelve() != null)
+			{
+				delveHp = true;
+			}
+			if (fight.getMaxHp() == null)
+			{
+				continue;
+			}
+			if (maxHp == null)
 			{
 				maxHp = fight.getMaxHp();
+			}
+			else if (!maxHp.equals(fight.getMaxHp()))
+			{
+				sameHp = false;
 				break;
 			}
+		}
+		if (!sameHp || delveHp)
+		{
+			maxHp = null;
 		}
 		row.add(named, BorderLayout.CENTER);
 		if (maxHp != null)
