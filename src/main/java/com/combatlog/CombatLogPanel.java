@@ -730,7 +730,7 @@ class CombatLogPanel extends PluginPanel
 		{
 			block.setBorder(new EmptyBorder(0, leftPad, 0, 0));
 		}
-		block.add(fightHeader(fight, open));
+		block.add(fightHeader(fight, open, snapshot.getView()));
 		String delve = DoomDelve.detail(fight.getDelve());
 		if (delve != null)
 		{
