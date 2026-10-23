@@ -4,6 +4,7 @@ import com.google.inject.Provides;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -68,7 +69,8 @@ import net.runelite.client.util.ImageUtil;
 	name = CombatLogPlugin.NAME,
 	description = "Records the hits you land on enemies",
 	tags = {"combat", "damage", "dps", "hitsplat", "log"},
-	enabledByDefault = true
+	enabledByDefault = true,
+	internalName = "detailed-combat-log"
 )
 public class CombatLogPlugin extends Plugin
 {
@@ -153,6 +155,14 @@ public class CombatLogPlugin extends Plugin
 		running = true;
 		combatLog.setMaxEntries(config.maxEntries());
 		monsterIcons.setEnabled(config.monsterIcons());
+		try
+		{
+			monsterIcons.setCache(getPluginDirectory().joinSegment("npc-icons"));
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not open the monster icon folder", ex);
+		}
 		loadSidebarIcon();
 		if (config.showOverlay())
 		{

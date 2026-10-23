@@ -13,27 +13,32 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.util.Filepath;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Small transparent renders of the NPC that was hit. Images come from the
- * public OSRS model renders and are cached by NPC id.
+ * Small transparent renders of the NPC that was hit. Pictures come from the
+ * Old School RuneScape Wiki and are kept on disk in the plugin's data folder.
  */
 @Slf4j
 @Singleton
 class MonsterIcons
 {
 	static final int SIZE = 26;
+	static final String USER_AGENT = "Detailed Combat Log (RuneLite plugin; https://github.com/AdancitoPR/runelite-combatlog)";
 	private static final int MAX_BYTES = 2_000_000;
-	private static final String ICON_URL = "https://chisel.weirdgloop.org/static/img/osrs-npc/%d_128.png";
+	private static final HttpUrl WIKI = HttpUrl.get("https://oldschool.runescape.wiki/");
 
 	@Nullable
 	private final OkHttpClient http;
+	@Nullable
+	private volatile Filepath cache;
 	private final ConcurrentHashMap<Integer, BufferedImage> icons = new ConcurrentHashMap<>();
 	private final Set<Integer> pending = ConcurrentHashMap.newKeySet();
 	private final Set<Integer> missing = ConcurrentHashMap.newKeySet();
@@ -57,6 +62,27 @@ class MonsterIcons
 	}
 
 	/**
+	 * Saves downloaded pictures under this folder. The folder is the plugin
+	 * directory from {@link net.runelite.client.plugins.Plugin#getPluginDirectory()}.
+	 */
+	void setCache(@Nullable Filepath directory)
+	{
+		if (directory == null)
+		{
+			return;
+		}
+		try
+		{
+			directory.createDirectories();
+			cache = directory;
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not create the monster icon folder", ex);
+		}
+	}
+
+	/**
 	 * When off, nothing is downloaded. Icons already loaded are still returned.
 	 */
 	void setEnabled(boolean enabled)
@@ -67,21 +93,38 @@ class MonsterIcons
 	BufferedImage get(int npcId)
 	{
 		BufferedImage icon = icons.get(npcId);
-		if (icon != null || !enabled || missing.contains(npcId) || !pending.add(npcId))
+		if (icon != null || !enabled || missing.contains(npcId))
 		{
 			return icon;
 		}
-
+		icon = readCache(npcId);
+		if (icon != null)
+		{
+			icons.put(npcId, icon);
+			return icon;
+		}
+		if (!pending.add(npcId))
+		{
+			return null;
+		}
 		if (http == null)
 		{
 			pending.remove(npcId);
 			return null;
 		}
+		requestLookup(npcId);
+		return null;
+	}
 
-		Request request = new Request.Builder()
-			.url(String.format(ICON_URL, npcId))
+	private void requestLookup(int npcId)
+	{
+		HttpUrl url = WIKI.newBuilder()
+			.addPathSegment("api.php")
+			.addQueryParameter("action", "bucket")
+			.addQueryParameter("format", "json")
+			.addQueryParameter("query", "bucket('infobox_monster').select('image').where('id', " + npcId + ").limit(1).run()")
 			.build();
-		http.newCall(request).enqueue(new Callback()
+		http.newCall(request(url)).enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException error)
@@ -94,7 +137,49 @@ class MonsterIcons
 			{
 				try (ResponseBody body = response.body())
 				{
-					byte[] bytes = response.isSuccessful() && body != null ? body.bytes() : null;
+					String json = response.isSuccessful() && body != null ? body.string() : null;
+					String file = json == null ? null : imageFile(json);
+					if (file == null)
+					{
+						finish(npcId, null, null);
+						return;
+					}
+					requestImage(npcId, file, true);
+				}
+				catch (IOException ex)
+				{
+					finish(npcId, null, ex);
+				}
+			}
+		});
+	}
+
+	private void requestImage(int npcId, String fileName, boolean thumb)
+	{
+		http.newCall(request(imageUrl(fileName, thumb))).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException error)
+			{
+				finish(npcId, null, error);
+			}
+
+			@Override
+			public void onResponse(Call call, Response response)
+			{
+				try (ResponseBody body = response.body())
+				{
+					if (!response.isSuccessful())
+					{
+						if (thumb)
+						{
+							requestImage(npcId, fileName, false);
+							return;
+						}
+						finish(npcId, null, null);
+						return;
+					}
+					byte[] bytes = body == null ? null : body.bytes();
 					finish(npcId, bytes, null);
 				}
 				catch (IOException ex)
@@ -103,7 +188,56 @@ class MonsterIcons
 				}
 			}
 		});
-		return null;
+	}
+
+	private Request request(HttpUrl url)
+	{
+		return new Request.Builder()
+			.url(url)
+			.header("User-Agent", USER_AGENT)
+			.build();
+	}
+
+	/**
+	 * The wiki file name from a bucket response, with spaces turned into underscores.
+	 */
+	@Nullable
+	static String imageFile(@Nullable String json)
+	{
+		if (json == null)
+		{
+			return null;
+		}
+		int file = json.indexOf("File:");
+		if (file < 0)
+		{
+			return null;
+		}
+		int end = json.indexOf('"', file);
+		if (end < 0)
+		{
+			return null;
+		}
+		String name = json.substring(file + "File:".length(), end).replace(' ', '_');
+		if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.contains(".."))
+		{
+			return null;
+		}
+		return name;
+	}
+
+	static HttpUrl imageUrl(String fileName, boolean thumb)
+	{
+		HttpUrl.Builder builder = WIKI.newBuilder().addPathSegment("images");
+		if (!thumb)
+		{
+			return builder.addPathSegment(fileName).build();
+		}
+		return builder
+			.addPathSegment("thumb")
+			.addPathSegment(fileName)
+			.addPathSegment("128px-" + fileName)
+			.build();
 	}
 
 	private void finish(int npcId, @Nullable byte[] body, @Nullable Throwable error)
@@ -115,6 +249,7 @@ class MonsterIcons
 				BufferedImage decoded = ImageIO.read(new ByteArrayInputStream(body));
 				if (decoded != null)
 				{
+					writeCache(npcId, body);
 					icons.put(npcId, toIcon(decoded));
 					Runnable callback = onLoaded;
 					if (callback != null)
@@ -138,6 +273,51 @@ class MonsterIcons
 		finally
 		{
 			pending.remove(npcId);
+		}
+	}
+
+	@Nullable
+	private BufferedImage readCache(int npcId)
+	{
+		Filepath directory = cache;
+		if (directory == null)
+		{
+			return null;
+		}
+		try
+		{
+			Filepath file = directory.joinSegment(npcId + ".png");
+			if (!file.isFile() || file.size() <= 0 || file.size() > MAX_BYTES)
+			{
+				return null;
+			}
+			try (var in = file.openInputStream())
+			{
+				BufferedImage decoded = ImageIO.read(in);
+				return decoded == null ? null : toIcon(decoded);
+			}
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not read cached monster icon {}", npcId, ex);
+			return null;
+		}
+	}
+
+	private void writeCache(int npcId, byte[] body)
+	{
+		Filepath directory = cache;
+		if (directory == null)
+		{
+			return;
+		}
+		try
+		{
+			directory.joinSegment(npcId + ".png").write(body);
+		}
+		catch (IOException ex)
+		{
+			log.debug("Could not save monster icon {}", npcId, ex);
 		}
 	}
 

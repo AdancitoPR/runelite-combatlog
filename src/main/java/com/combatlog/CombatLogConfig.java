@@ -115,7 +115,7 @@ public interface CombatLogConfig extends Config
 	@ConfigItem(
 		keyName = "monsterIcons",
 		name = "Download monster icons",
-		description = "Loads NPC pictures from chisel.weirdgloop.org (OSRS Wiki). Sends the NPC id to that site.",
+		description = "Loads NPC pictures from oldschool.runescape.wiki and keeps them on disk. Sends the NPC id to that site.",
 		position = 9,
 		section = logSection
 	)

@@ -1247,10 +1247,12 @@ public class CombatLogTest
 	public void monsterIconsAreNotRequestedWhenDisabled() throws Exception
 	{
 		java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+		java.util.concurrent.atomic.AtomicReference<okhttp3.Request> seen = new java.util.concurrent.atomic.AtomicReference<>();
 		okhttp3.OkHttpClient http = new okhttp3.OkHttpClient.Builder()
 			.addInterceptor(chain ->
 			{
 				requests.incrementAndGet();
+				seen.set(chain.request());
 				throw new java.io.IOException("offline");
 			})
 			.build();
@@ -1268,6 +1270,40 @@ public class CombatLogTest
 			Thread.sleep(50);
 		}
 		assertEquals(1, requests.get());
+		assertEquals("oldschool.runescape.wiki", seen.get().url().host());
+		assertEquals(MonsterIcons.USER_AGENT, seen.get().header("User-Agent"));
+		assertEquals("Guard_dog.png", MonsterIcons.imageFile("{\"bucket\":[{\"image\":[\"File:Guard dog.png\"]}]}"));
+		assertNull(MonsterIcons.imageFile("{\"bucket\":[]}"));
+		assertEquals(
+			"https://oldschool.runescape.wiki/images/thumb/Guard_dog.png/128px-Guard_dog.png",
+			MonsterIcons.imageUrl("Guard_dog.png", true).toString());
+	}
+
+	@Test
+	public void monsterIconLoadsFromDiskWithoutARequest() throws Exception
+	{
+		java.nio.file.Path temp = java.nio.file.Files.createTempDirectory("combatlog-icons");
+		net.runelite.client.util.Filepath root = net.runelite.client.util.Filepath.Unchecked.getRooted(temp);
+		try
+		{
+			java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+			image.setRGB(0, 0, 0xff112233);
+			image.setRGB(1, 0, 0xff112233);
+			image.setRGB(0, 1, 0xff112233);
+			image.setRGB(1, 1, 0xff112233);
+			java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+			javax.imageio.ImageIO.write(image, "png", bytes);
+			MonsterIcons icons = new MonsterIcons();
+			icons.setCache(root);
+			root.joinSegment("301.png").write(bytes.toByteArray());
+			java.awt.image.BufferedImage loaded = icons.get(301);
+			assertNotNull(loaded);
+			assertEquals(MonsterIcons.SIZE, loaded.getWidth());
+		}
+		finally
+		{
+			root.deleteRecursively();
+		}
 	}
 
 	private static int countDirection(Fight fight, DamageDirection direction)
