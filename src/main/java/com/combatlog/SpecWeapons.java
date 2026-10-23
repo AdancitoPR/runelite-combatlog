@@ -36,4 +36,24 @@ public final class SpecWeapons
 				return 1;
 		}
 	}
+
+	/**
+	 * How many ticks that weapon's extra hitsplats can lag behind the first.
+	 * Zero means the swing is a single hitsplat.
+	 */
+	public static int burst(int weaponId)
+	{
+		int hits = splats(weaponId);
+		if (hits >= 3)
+		{
+			return 2;
+		}
+		return hits > 1 ? 1 : 0;
+	}
+
+	/** The multi-hit is the special itself, rather than every swing. */
+	public static boolean multiSpec(int weaponId)
+	{
+		return splats(weaponId) >= 3;
+	}
 }

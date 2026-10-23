@@ -22,6 +22,12 @@ public final class Fight
 	private boolean closed;
 	private boolean killed;
 	private Integer maxHp;
+	/** Head item id for a player. 0 means nothing is worn there. Null for an NPC. */
+	@Nullable
+	private Integer headItemId;
+	/** Name of {@link #headItemId}, read on the client thread when the head was seen. */
+	@Nullable
+	private String headItemName;
 
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
@@ -74,6 +80,24 @@ public final class Fight
 	public List<AttackSwing> getAttacks()
 	{
 		return Collections.unmodifiableList(attacks);
+	}
+
+	@Nullable
+	public Integer getHeadItemId()
+	{
+		return headItemId;
+	}
+
+	@Nullable
+	public String getHeadItemName()
+	{
+		return headItemName;
+	}
+
+	void setHead(int headItemId, @Nullable String headItemName)
+	{
+		this.headItemId = headItemId;
+		this.headItemName = headItemId > 0 ? headItemName : null;
 	}
 
 	public int getStartTick()
@@ -157,6 +181,8 @@ public final class Fight
 		copy.closed = closed;
 		copy.killed = killed;
 		copy.maxHp = maxHp;
+		copy.headItemId = headItemId;
+		copy.headItemName = headItemName;
 		return copy;
 	}
 
@@ -208,6 +234,24 @@ public final class Fight
 	public int damageDone()
 	{
 		return weaponDamage() + thrallDamage() + extraDamage();
+	}
+
+	/**
+	 * Incoming shows damage taken. Both does too when nothing was dealt, so a
+	 * fight that only received hits is not listed as zero.
+	 */
+	public boolean showsTaken(DamageView view)
+	{
+		if (view == DamageView.INCOMING)
+		{
+			return true;
+		}
+		return view == DamageView.BOTH && damageDone() == 0 && damageTaken() > 0;
+	}
+
+	public int headerAmount(DamageView view)
+	{
+		return showsTaken(view) ? damageTaken() : damageDone();
 	}
 
 	public int weaponDamage()

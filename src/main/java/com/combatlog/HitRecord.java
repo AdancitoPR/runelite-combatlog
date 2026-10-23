@@ -97,6 +97,11 @@ public final class HitRecord
 		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source == null ? this.source : source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle, prayerIcon, attackStyleIcon);
 	}
 
+	public HitRecord withWeapon(@Nullable Integer weaponItemId)
+	{
+		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle, prayerIcon, attackStyleIcon);
+	}
+
 	public HitRecord withStyle(@Nullable CombatStyle combatStyle)
 	{
 		return new HitRecord(timeMillis, targetName, targetKind, npcId, npcIndex, weaponItemId, amount, kind, tint, tick, direction, source, special, overkill, attackId, fightId, sequence, sourceNpcId, combatStyle, prayerIcon, attackStyleIcon);

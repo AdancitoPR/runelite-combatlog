@@ -162,6 +162,41 @@ public class CombatLog
 		}
 	}
 
+	/**
+	 * Poison, venom, and burn on a player count only while you are fighting
+	 * that player. Those splats are visible for anyone's poison.
+	 */
+	public boolean fightingPlayer(@Nullable String name, int tick)
+	{
+		synchronized (lock)
+		{
+			return fights.fightingPlayer(name, tick);
+		}
+	}
+
+	@Nullable
+	public String soleOpenPlayer()
+	{
+		synchronized (lock)
+		{
+			return fights.soleOpenPlayer();
+		}
+	}
+
+	public void notePlayerHead(@Nullable String name, int itemId)
+	{
+		notePlayerHead(name, itemId, null);
+	}
+
+	public void notePlayerHead(@Nullable String name, int itemId, @Nullable String itemName)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.notePlayerHead(name, itemId, itemName);
+		}
+	}
+
 	public void noteCombatTick(int tick)
 	{
 		synchronized (lock)
