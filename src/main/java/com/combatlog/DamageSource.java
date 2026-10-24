@@ -12,6 +12,7 @@ public enum DamageSource
 	DISEASE,
 	CORRUPTION,
 	DOOM,
+	PUNISH,
 	PRAYER,
 	SANITY;
 

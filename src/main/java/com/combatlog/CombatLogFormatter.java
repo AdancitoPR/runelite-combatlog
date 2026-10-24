@@ -71,6 +71,10 @@ public final class CombatLogFormatter
 		{
 			return "0";
 		}
+		if (isPunish(row))
+		{
+			return row.getTotal() + " (Punish!)";
+		}
 		String hits = specHits(row);
 		if (hits != null)
 		{
@@ -127,6 +131,18 @@ public final class CombatLogFormatter
 		return parts.toString();
 	}
 
+	private static boolean isPunish(AttackRow row)
+	{
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.getSource() == DamageSource.PUNISH)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static boolean maxHit(AttackRow row)
 	{
 		for (HitRecord hit : row.getHits())
@@ -154,6 +170,10 @@ public final class CombatLogFormatter
 		{
 			text += " (Max hit)";
 		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			text += " (Punish!)";
+		}
 		if (hit.getOverkill() > 0)
 		{
 			text += " (" + hit.getOverkill() + " overkill)";
@@ -177,6 +197,10 @@ public final class CombatLogFormatter
 		if (status != null)
 		{
 			return status;
+		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			return "Punish!";
 		}
 		if (row.isSpecial())
 		{
@@ -227,6 +251,8 @@ public final class CombatLogFormatter
 				return "corruption";
 			case DOOM:
 				return "doom";
+			case PUNISH:
+				return "";
 			case PRAYER:
 				return "prayer";
 			case SANITY:
@@ -342,6 +368,10 @@ public final class CombatLogFormatter
 		if (hit.getKind() == HitKind.BLOCK)
 		{
 			return "Block";
+		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			return "Punish!";
 		}
 		return "Hit";
 	}

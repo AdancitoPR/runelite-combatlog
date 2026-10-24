@@ -1188,7 +1188,22 @@ class CombatLogPanel extends PluginPanel
 			}
 			return icon;
 		}
-		return sample == null ? iconLabel(MonsterIcons.SIZE) : monsterIcon(sample);
+		Integer id = fight.getNpcId();
+		if (id == null && sample != null)
+		{
+			id = sample.getNpcId();
+		}
+		BufferedImage image = id == null || monsterIcons == null ? null : monsterIcons.get(id);
+		if (image == null && id == null && monsterIcons != null && CombatDummy.named(fight.getName()))
+		{
+			image = monsterIcons.get(CombatDummy.ICON_ID);
+		}
+		JLabel icon = iconLabel(MonsterIcons.SIZE);
+		if (image != null)
+		{
+			icon.setIcon(new ImageIcon(image));
+		}
+		return icon;
 	}
 
 	private static JLabel iconLabel(int size)
@@ -1201,27 +1216,6 @@ class CombatLogPanel extends PluginPanel
 		icon.setPreferredSize(box);
 		icon.setMinimumSize(box);
 		icon.setMaximumSize(box);
-		return icon;
-	}
-
-	private JLabel monsterIcon(HitRecord hit)
-	{
-		JLabel icon = new JLabel();
-		icon.setOpaque(false);
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
-		icon.setVerticalAlignment(SwingConstants.CENTER);
-		Dimension size = new Dimension(MonsterIcons.SIZE, MonsterIcons.SIZE);
-		icon.setPreferredSize(size);
-		icon.setMinimumSize(size);
-		icon.setMaximumSize(size);
-		if (hit.getNpcId() != null)
-		{
-			BufferedImage image = monsterIcons.get(hit.getNpcId());
-			if (image != null)
-			{
-				icon.setIcon(new ImageIcon(image));
-			}
-		}
 		return icon;
 	}
 

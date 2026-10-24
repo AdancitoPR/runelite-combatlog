@@ -126,6 +126,8 @@ public class CombatLogPlugin extends Plugin
 	private static final int DOOM_ABSENT_TICKS = 8;
 	private int doomAbsentTick = -1;
 	private boolean doomDied;
+	private int meleePunishBonus;
+	private int meleePunishUntil = -1;
 	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
@@ -405,9 +407,14 @@ public class CombatLogPlugin extends Plugin
 			noteOpponentSwing((Player) actor, tick);
 			return;
 		}
-		if (actor instanceof NPC && isThrall((NPC) actor))
+		if (actor instanceof NPC)
 		{
-			rememberThrall((NPC) actor);
+			NPC npc = (NPC) actor;
+			noteDoomCharge(npc, tick);
+			if (isThrall(npc))
+			{
+				rememberThrall(npc);
+			}
 		}
 	}
 
@@ -577,7 +584,12 @@ public class CombatLogPlugin extends Plugin
 		int amount = event.getHitsplat().getAmount();
 		boolean splash = status == null && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
 		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
-		Integer weapon = status == null ? combatLog.weaponFor(npcIndex, tick, equippedWeaponId()) : null;
+		Integer equipped = equippedWeaponId();
+		Integer weapon = status == null ? combatLog.weaponFor(npcIndex, tick, equipped) : null;
+		if (StrayZero.drop(amount, splash, weapon, equipped))
+		{
+			return;
+		}
 		HitRecord record = status != null
 			? HitCapture.captureStatus(type, amount, actor.getName(), targetKind, npcId, npcIndex, System.currentTimeMillis(), tick)
 			: HitCapture.capture(captureType, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks() || splash, config.recordPlayerHits(), System.currentTimeMillis());
@@ -1126,6 +1138,67 @@ public class CombatLogPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Doom's yellow beam is the melee punish window. The bonus hitsplat lands
+	 * on the interrupt, or a tick or two after it.
+	 */
+	private void noteDoomCharge(NPC npc, int tick)
+	{
+		int animation = npc.getAnimation();
+		int index = npc.getIndex();
+		if (DoomPunish.charging(animation))
+		{
+			int bonus = DoomPunish.bonus(strengthBonus());
+			int until = tick + DoomPunish.CHARGE_TICKS;
+			meleePunishBonus = bonus;
+			meleePunishUntil = until;
+			combatLog.notePunish(index, tick, until, bonus);
+		}
+		else if (DoomPunish.cancelled(animation))
+		{
+			int bonus = DoomPunish.bonus(strengthBonus());
+			int until = tick + DoomPunish.LAND_TICKS;
+			meleePunishBonus = bonus;
+			meleePunishUntil = until;
+			combatLog.notePunish(index, Math.max(0, tick - DoomPunish.CHARGE_TICKS), until, bonus);
+		}
+		else if (DoomPunish.fired(animation))
+		{
+			meleePunishBonus = 0;
+			meleePunishUntil = -1;
+			combatLog.clearPunish();
+		}
+	}
+
+	/** Gear strength bonus. Prayers are not part of the punish formula. */
+	private int strengthBonus()
+	{
+		if (itemManager == null)
+		{
+			return 0;
+		}
+		ItemContainer worn = client.getItemContainer(InventoryID.WORN);
+		if (worn == null)
+		{
+			return 0;
+		}
+		int bonus = 0;
+		for (Item item : worn.getItems())
+		{
+			if (item == null || item.getId() <= 0)
+			{
+				continue;
+			}
+			ItemStats stats = itemManager.getItemStats(item.getId());
+			if (stats == null || stats.getEquipment() == null)
+			{
+				continue;
+			}
+			bonus += stats.getEquipment().getStr();
+		}
+		return bonus;
+	}
+
 	private Integer equippedWeaponId()
 	{
 		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
@@ -1594,58 +1667,82 @@ public class CombatLogPlugin extends Plugin
 		{
 			vengeanceAt = unmatchedVengeance(hits, thrallAt);
 		}
-		for (int i = 0; i < hits.size(); i++)
+		for (int pass = 0; pass < 2; pass++)
 		{
-			PendingHit hit = hits.get(i);
-			DamageSource recorded = hit.record.getSource();
-			DamageSource source = hit.burn || recorded.isStatus()
-				? recorded
-				: i == vengeanceAt
-					? DamageSource.VENGEANCE
-					: i == thrallAt
-						? DamageSource.THRALL
-						: DamageSource.WEAPON;
-			// The spec flag follows the swing that spent the energy. Claiming the
-			// first hitsplat after the energy drop tagged the dart that was
-			// already in the air, and the real blowpipe spec landed as a normal hit.
-			boolean special = false;
-			Integer weapon = source == DamageSource.THRALL || source.isStatus()
-				? null
-				: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
-			HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
-			if (source.isStatus())
+			for (int i = 0; i < hits.size(); i++)
 			{
-				record = record.asSource(source, null, null);
-			}
-			if (source == DamageSource.WEAPON)
-			{
-				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
-				if (weapon == null)
+				if (deferPunish(hits.get(i)) != (pass == 1))
 				{
-					record = record.withAttackStyle(styleFromSwing(hit.npcIndex, hit.tick));
+					continue;
 				}
+				storeHit(hits.get(i), i, vengeanceAt, thrallAt);
 			}
-			if (source == DamageSource.THRALL)
-			{
-				record = record.asSource(DamageSource.THRALL, null, thrallNpcId).withPrayer(null);
-			}
-			joinDoomSurface(hit.npcIndex, record.getNpcId());
-			combatLog.add(record);
-			noteDoomDelve(hit.npcIndex, record.getNpcId());
-			if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
-			{
-				Integer maxHp = npcManager.getHealth(record.getNpcId());
-				if (maxHp != null)
-				{
-					combatLog.noteMaxHp(hit.npcIndex, maxHp);
-				}
-			}
-			if (hit.killed && !DoomDelve.surface(record.getNpcId()))
-			{
-				combatLog.closeLife(hit.npcIndex, hit.tick);
-			}
-			log.debug("{} [{}]", record.describe(), record.getSource());
 		}
+	}
+
+	/**
+	 * The punish bonus is stored after the weapon hits on the same tick, so a
+	 * 23 beside a 22 and a 32 is the bonus and not the first hit of the swing.
+	 */
+	private boolean deferPunish(PendingHit hit)
+	{
+		return meleePunishBonus > 0
+			&& meleePunishUntil >= hit.tick
+			&& hit.record.getAmount() == meleePunishBonus
+			&& !hit.burn
+			&& DoomDelve.surface(hit.record.getNpcId());
+	}
+
+	private void storeHit(PendingHit hit, int i, int vengeanceAt, int thrallAt)
+	{
+		DamageSource recorded = hit.record.getSource();
+		DamageSource source = hit.burn || recorded.isStatus()
+			? recorded
+			: i == vengeanceAt
+				? DamageSource.VENGEANCE
+				: i == thrallAt
+					? DamageSource.THRALL
+					: DamageSource.WEAPON;
+		// The spec flag follows the swing that spent the energy. Claiming the
+		// first hitsplat after the energy drop tagged the dart that was
+		// already in the air, and the real blowpipe spec landed as a normal hit.
+		boolean special = false;
+		Integer weapon = source == DamageSource.THRALL || source.isStatus()
+			? null
+			: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
+		HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
+		if (source.isStatus())
+		{
+			record = record.asSource(source, null, null);
+		}
+		if (source == DamageSource.WEAPON)
+		{
+			record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
+			if (weapon == null)
+			{
+				record = record.withAttackStyle(styleFromSwing(hit.npcIndex, hit.tick));
+			}
+		}
+		if (source == DamageSource.THRALL)
+		{
+			record = record.asSource(DamageSource.THRALL, null, thrallNpcId).withPrayer(null);
+		}
+		joinDoomSurface(hit.npcIndex, record.getNpcId());
+		combatLog.add(record);
+		noteDoomDelve(hit.npcIndex, record.getNpcId());
+		if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
+		{
+			Integer maxHp = npcManager.getHealth(record.getNpcId());
+			if (maxHp != null)
+			{
+				combatLog.noteMaxHp(hit.npcIndex, maxHp);
+			}
+		}
+		if (hit.killed && !DoomDelve.surface(record.getNpcId()))
+		{
+			combatLog.closeLife(hit.npcIndex, hit.tick);
+		}
+		log.debug("{} [{}]", record.describe(), record.getSource());
 	}
 
 	/**

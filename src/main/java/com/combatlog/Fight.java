@@ -35,7 +35,7 @@ public final class Fight
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
 		this.id = id;
-		this.name = name;
+		this.name = Names.plain(name);
 		this.kind = kind;
 		this.npcId = npcId;
 		this.npcIndex = npcIndex;

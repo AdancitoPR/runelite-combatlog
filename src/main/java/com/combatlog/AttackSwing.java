@@ -23,7 +23,7 @@ public final class AttackSwing
 	{
 		this.tick = tick;
 		this.npcIndex = npcIndex;
-		this.name = name == null ? "" : name;
+		this.name = name == null ? "" : Names.plain(name);
 		this.weaponItemId = weaponItemId;
 		this.speed = speed > 0 ? speed : 4;
 		this.attackId = attackId;

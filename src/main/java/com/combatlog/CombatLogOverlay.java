@@ -202,7 +202,11 @@ class CombatLogOverlay extends OverlayPanel
 			.build();
 		BufferedImage monster = fight.getKind() == TargetKind.PLAYER
 			? PlayerIcon.image(fight, monsterIcons, weaponIcons)
-			: fight.getNpcId() == null ? null : monsterIcons.get(fight.getNpcId());
+			: fight.getNpcId() == null || monsterIcons == null ? null : monsterIcons.get(fight.getNpcId());
+		if (monster == null && fight.getNpcId() == null && monsterIcons != null && CombatDummy.named(fight.getName()))
+		{
+			monster = monsterIcons.get(CombatDummy.ICON_ID);
+		}
 		if (monster == null)
 		{
 			return line;
@@ -268,7 +272,11 @@ class CombatLogOverlay extends OverlayPanel
 
 	private BufferedImage prayerIcon(HitRecord hit)
 	{
-		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() != DamageSource.WEAPON || prayerIcons == null)
+		if (hit.getDirection() != DamageDirection.OUTGOING || prayerIcons == null)
+		{
+			return null;
+		}
+		if (hit.getSource() != DamageSource.WEAPON && hit.getSource() != DamageSource.PUNISH)
 		{
 			return null;
 		}

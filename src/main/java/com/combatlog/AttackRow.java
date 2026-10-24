@@ -101,9 +101,16 @@ public final class AttackRow
 		{
 			return true;
 		}
-		if (first.getDirection() == DamageDirection.INCOMING || first.isBlock() || hit.isBlock())
+		if (first.getDirection() == DamageDirection.INCOMING)
 		{
 			return false;
+		}
+		// A zero from the same special stays on that row, even a couple of ticks later.
+		if (first.isBlock() || hit.isBlock() || first.getAmount() <= 0 || hit.getAmount() <= 0)
+		{
+			return first.getAttackId() != null
+				&& first.getAttackId().equals(hit.getAttackId())
+				&& (first.isSpecial() || hit.isSpecial());
 		}
 		if (first.getAttackId() != null && first.getAttackId().equals(hit.getAttackId()))
 		{
