@@ -60,6 +60,19 @@ class CombatLogPanel extends PluginPanel
 	private static final Color CHOICE_SELECTED = new Color(68, 68, 68);
 	private static final Color CHOICE_SELECTED_HOVER = new Color(86, 86, 86);
 	private static final Color CHOICE_SELECTED_PRESSED = new Color(50, 50, 50);
+	/** Padding around the empty state and the fight notes. */
+	private static final int TEXT_INSET = 8;
+	/**
+	 * Room for wrapping copy inside the sidebar, after the plugin border and {@link #TEXT_INSET}.
+	 * The scrollbar sits beside this width.
+	 */
+	private static final int SIDEBAR_TEXT_ROOM = PluginPanel.PANEL_WIDTH
+		- (PluginPanel.BORDER_OFFSET + TEXT_INSET) * 2;
+	/**
+	 * Swing's HTML renderer maps a CSS pixel to 1.3 layout pixels. The wrap width is the
+	 * sidebar room divided by that, or the line runs under the scrollbar.
+	 */
+	private static final int WRAPPED_TEXT_WIDTH = (SIDEBAR_TEXT_ROOM - 8) * 10 / 13;
 
 	private final CombatLog combatLog;
 	private final CombatLogConfig config;
@@ -153,7 +166,7 @@ class CombatLogPanel extends PluginPanel
 
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		body.setBorder(new EmptyBorder(8, 8, 8, 8));
+		body.setBorder(new EmptyBorder(TEXT_INSET, TEXT_INSET, TEXT_INSET, TEXT_INSET));
 
 		emptyLabel.setFont(uiFont());
 		emptyLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
@@ -161,10 +174,9 @@ class CombatLogPanel extends PluginPanel
 		emptyLabel.setOpaque(true);
 		emptyLabel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		emptyLabel.setVerticalAlignment(SwingConstants.TOP);
-		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the damage you deal shows up here in red."
+		emptyLabel.setText("<html><body style='width:" + WRAPPED_TEXT_WIDTH + "px'>No hits yet. Attack something and the damage you deal shows up here in red."
 			+ "<br><br>Damage you take is logged too, including poison, venom, burn, and bleed. Other players' hits stay off this log.</body></html>");
-		int emptyHeight = emptyLabel.getPreferredSize().height;
-		emptyLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, emptyHeight));
+		emptyLabel.setMaximumSize(emptyLabel.getPreferredSize());
 		body.add(emptyLabel);
 
 		hitsPanel.setLayout(new BoxLayout(hitsPanel, BoxLayout.Y_AXIS));
@@ -851,7 +863,7 @@ class CombatLogPanel extends PluginPanel
 
 	private static JLabel noteLabel(String text, boolean nowrap)
 	{
-		String style = nowrap ? "width:209px;white-space:nowrap" : "width:190px";
+		String style = nowrap ? "width:209px;white-space:nowrap" : "width:" + WRAPPED_TEXT_WIDTH + "px";
 		JLabel label = new JLabel("<html><body style='" + style + "'>" + text + "</body></html>");
 		label.setFont(uiFont());
 		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);

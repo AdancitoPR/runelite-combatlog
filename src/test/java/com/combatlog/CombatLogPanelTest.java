@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -16,6 +17,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.JTextArea;
 import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
@@ -100,6 +102,47 @@ public class CombatLogPanelTest
 					isDark(background));
 				int mid = image.getRGB(24, image.getHeight() / 2);
 				assertTrue("panel surface stayed white: " + Integer.toHexString(mid), isDark(mid));
+			}
+			finally
+			{
+				frame.dispose();
+			}
+		});
+	}
+
+	@Test
+	public void emptyStateTextStaysInsideTheSidebar() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLogPanel panel = new CombatLogPanel(new CombatLog(10), config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+			JLabel empty = findLabelContaining(panel, "No hits yet");
+			assertNotNull(empty);
+			assertTrue(empty.getText().contains("in red"));
+			assertTrue(empty.getText().contains("including poison, venom, burn, and bleed"));
+			assertTrue(empty.getText().contains("Other players' hits stay off this log"));
+			int room = PluginPanel.PANEL_WIDTH - (PluginPanel.BORDER_OFFSET + 8) * 2;
+			assertTrue("empty text preferred " + empty.getPreferredSize().width + " exceeds the sidebar room " + room,
+				empty.getPreferredSize().width <= room);
+
+			JFrame frame = new JFrame();
+			try
+			{
+				frame.getContentPane().add(panel.getWrappedPanel());
+				frame.getContentPane().setPreferredSize(new Dimension(PluginPanel.PANEL_WIDTH + PluginPanel.SCROLLBAR_WIDTH, 480));
+				frame.pack();
+				frame.setVisible(true);
+				JScrollPane scroll = scrollPane(panel);
+				scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+				frame.validate();
+
+				Point origin = SwingUtilities.convertPoint(empty, 0, 0, scroll.getViewport());
+				assertTrue("laid out " + empty.getWidth() + " preferred " + empty.getPreferredSize().width,
+					empty.getWidth() >= empty.getPreferredSize().width);
+				int right = origin.x + empty.getWidth();
+				assertTrue("empty text ends at " + right + " past the viewport " + scroll.getViewport().getWidth(),
+					right <= scroll.getViewport().getWidth());
 			}
 			finally
 			{
@@ -500,6 +543,28 @@ public class CombatLogPanelTest
 			}
 		}
 		return count;
+	}
+
+	private static JLabel findLabelContaining(Component component, String text)
+	{
+		if (component instanceof JLabel && ((JLabel) component).getText() != null
+			&& ((JLabel) component).getText().contains(text))
+		{
+			return (JLabel) component;
+		}
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				JLabel found = findLabelContaining(container.getComponent(i), text);
+				if (found != null)
+				{
+					return found;
+				}
+			}
+		}
+		return null;
 	}
 
 	private static JButton findButton(Component component, String text)

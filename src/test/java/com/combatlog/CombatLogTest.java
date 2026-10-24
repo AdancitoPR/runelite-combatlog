@@ -1423,6 +1423,45 @@ public class CombatLogTest
 		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0);
 	}
 
+	@Test
+	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
+	{
+		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.
+		boolean[] keep = OwnHits.keep(new int[] {20, 54}, 70, true, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+
+		HitRecord max = new HitRecord(1_000L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 20, HitKind.MAX_HIT, null);
+		assertEquals("20 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Collections.singletonList(max)).get(0)));
+	}
+
+	@Test
+	public void experienceIdentifiesYourHitsWhenOtherPlayersHitTheSameTick()
+	{
+		boolean[] normal = OwnHits.keep(new int[] {12, 14, 10, 54}, 144, false, false);
+		assertNotNull(normal);
+		assertTrue(normal[0]);
+		assertTrue(normal[1]);
+		assertTrue(normal[2]);
+		assertFalse(normal[3]);
+
+		boolean[] single = OwnHits.keep(new int[] {20, 8, 12}, 80, false, false);
+		assertNotNull(single);
+		assertTrue(single[0]);
+		assertFalse(single[1]);
+		assertFalse(single[2]);
+
+		boolean[] blocked = OwnHits.keep(new int[] {54, 0}, 0, true, false);
+		assertNotNull(blocked);
+		assertFalse(blocked[0]);
+		assertTrue(blocked[1]);
+		assertNull(OwnHits.keep(new int[] {54, 0}, 0, false, false));
+
+		assertNull(OwnHits.keep(new int[] {20}, 65, false, true));
+		assertNull(OwnHits.keep(new int[] {54}, 70, true, false));
+	}
+
 	private static HitRecord specHit(int tick, int weapon, int amount, boolean block)
 	{
 		return new HitRecord(tick * 600L, "Zezima", TargetKind.PLAYER, null, null, weapon, amount, block ? HitKind.BLOCK : HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, 4L, tick);

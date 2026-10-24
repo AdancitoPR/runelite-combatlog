@@ -7,6 +7,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -31,6 +32,7 @@ import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.ParamID;
 import net.runelite.api.Player;
+import net.runelite.api.Skill;
 import net.runelite.api.Projectile;
 import net.runelite.api.StructComposition;
 import net.runelite.api.WorldView;
@@ -42,9 +44,11 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.NpcID;
 import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
@@ -140,6 +144,11 @@ public class CombatLogPlugin extends Plugin
 	@Nullable
 	private Integer swingStyleIcon;
 	private final List<PendingHit> pending = new ArrayList<>();
+	/** Last seen combat-skill experience, so a tick's gain can be told from the total. */
+	private final Map<Skill, Integer> skillXp = new EnumMap<>(Skill.class);
+	/** Attack, strength, defence, ranged, and magic experience gained on a tick. */
+	private final Map<Integer, int[]> styleXpByTick = new HashMap<>();
+	private boolean styleXpKnown;
 	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private final IncomingWeapons incomingWeapons = new IncomingWeapons();
 	private int lastHitTick = -100;
@@ -153,6 +162,7 @@ public class CombatLogPlugin extends Plugin
 	protected void startUp()
 	{
 		running = true;
+		seedStyleXp();
 		combatLog.setMaxEntries(config.maxEntries());
 		monsterIcons.setEnabled(config.monsterIcons());
 		try
@@ -194,6 +204,7 @@ public class CombatLogPlugin extends Plugin
 	private void resetState()
 	{
 		pending.clear();
+		styleXpByTick.clear();
 		lastHealth.clear();
 		quietDespawns.clear();
 		doomAbsentTick = -1;
@@ -575,6 +586,29 @@ public class CombatLogPlugin extends Plugin
 		record = record.withMeta(tick, null, null, weapon, false, status != null ? status : DamageSource.WEAPON, overkill, 0);
 		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
 		lastHitTick = tick;
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		int index = styleIndex(event.getSkill());
+		if (index < 0)
+		{
+			return;
+		}
+		Integer before = skillXp.put(event.getSkill(), event.getXp());
+		if (!styleXpKnown || before == null)
+		{
+			return;
+		}
+		int gained = event.getXp() - before;
+		// A login or a hop reports the whole skill total. That is not a hit.
+		if (gained <= 0 || gained > 5000)
+		{
+			return;
+		}
+		int[] totals = styleXpByTick.computeIfAbsent(client.getTickCount(), key -> new int[5]);
+		totals[index] += gained;
 	}
 
 	@Subscribe
@@ -1335,6 +1369,7 @@ public class CombatLogPlugin extends Plugin
 			classify(ready.subList(index, end));
 			index = end;
 		}
+		styleXpByTick.keySet().removeIf(tick -> tick < currentTick);
 		if (!ready.isEmpty())
 		{
 			queueRefresh();
@@ -1426,8 +1461,97 @@ public class CombatLogPlugin extends Plugin
 		return hp > 0 ? hp : null;
 	}
 
+	/**
+	 * Drops hitsplats from this tick that the combat experience does not account for.
+	 * Other players hitting the Gemstone Crab show up on the same tick, including
+	 * their max hits, and those used to be added onto the blowpipe hit.
+	 */
+	private List<PendingHit> withoutForeignHits(List<PendingHit> hits)
+	{
+		if (!styleXpKnown || hits.isEmpty())
+		{
+			return hits;
+		}
+		int tick = hits.get(0).tick;
+		int[] gained = styleXpByTick.get(tick);
+		int styleXp = 0;
+		int magicXp = 0;
+		if (gained != null)
+		{
+			for (int value : gained)
+			{
+				styleXp += value;
+			}
+			magicXp = gained[4];
+		}
+		boolean crab = false;
+		int[] amounts = new int[hits.size()];
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			if (hit.burn || hit.record.getSource().isStatus())
+			{
+				amounts[i] = -1;
+				continue;
+			}
+			amounts[i] = Math.max(0, hit.record.getAmount());
+			Integer npcId = hit.record.getNpcId();
+			if (npcId != null && npcId == NpcID.GEMSTONE_CRAB)
+			{
+				crab = true;
+			}
+		}
+		boolean[] keep = OwnHits.keep(amounts, styleXp, crab, magicXp > 0 && magicXp == styleXp);
+		if (keep == null)
+		{
+			return hits;
+		}
+		List<PendingHit> kept = new ArrayList<>();
+		for (int i = 0; i < hits.size(); i++)
+		{
+			if (keep[i])
+			{
+				kept.add(hits.get(i));
+			}
+		}
+		return kept;
+	}
+
+	private void seedStyleXp()
+	{
+		for (Skill skill : new Skill[] {Skill.ATTACK, Skill.STRENGTH, Skill.DEFENCE, Skill.RANGED, Skill.MAGIC})
+		{
+			skillXp.put(skill, client.getSkillExperience(skill));
+		}
+		styleXpKnown = true;
+	}
+
+	private static int styleIndex(Skill skill)
+	{
+		switch (skill)
+		{
+			case ATTACK:
+				return 0;
+			case STRENGTH:
+				return 1;
+			case DEFENCE:
+				return 2;
+			case RANGED:
+				return 3;
+			case MAGIC:
+				return 4;
+			default:
+				return -1;
+		}
+	}
+
 	private void classify(List<PendingHit> hits)
 	{
+		hits = withoutForeignHits(hits);
+		if (hits.isEmpty())
+		{
+			return;
+		}
 		int tick = hits.get(0).tick;
 		boolean swung = thrallMax > 0 && thrallNpcId != null;
 		int vengeanceAt = pickVengeance(hits, tick);
