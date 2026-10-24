@@ -33,6 +33,11 @@ final class FightTracker
 	private long nextAttackId = 1;
 	private int nextSequence;
 	private int lastTick;
+	/** Doom melee-charge window. Bonus hitsplats in it are the punish. */
+	private int punishNpc = -1;
+	private int punishStart = -1;
+	private int punishUntil = -1;
+	private int punishBonus;
 
 	@Nullable
 	HitRecord accept(HitRecord hit)
@@ -48,6 +53,11 @@ final class FightTracker
 		}
 		Long attackId = hit.getAttackId();
 		boolean special = hit.isSpecial();
+		if (attackId == null && isPunish(fight, hit))
+		{
+			hit = hit.asSource(DamageSource.PUNISH, null, hit.getSourceNpcId());
+			special = false;
+		}
 		if (attackId == null)
 		{
 			AttackSwing swing = selectSwing(fight, hit);
@@ -675,6 +685,36 @@ final class FightTracker
 		}
 	}
 
+	/**
+	 * Doom is charging a melee beam from {@code startTick} through {@code untilTick}.
+	 * A hitsplat of {@code bonus} in that window is the punish, once the weapon
+	 * swing already has a different hit. A charge that is already open keeps its start.
+	 */
+	void notePunish(int npcIndex, int startTick, int untilTick, int bonus)
+	{
+		if (untilTick < 0)
+		{
+			clearPunish();
+			return;
+		}
+		int start = Math.max(0, startTick);
+		if (punishUntil < start)
+		{
+			punishStart = start;
+			punishNpc = npcIndex;
+		}
+		punishUntil = untilTick;
+		punishBonus = Math.max(0, bonus);
+	}
+
+	void clearPunish()
+	{
+		punishNpc = -1;
+		punishStart = -1;
+		punishUntil = -1;
+		punishBonus = 0;
+	}
+
 	void markSpecSwing(int tick, @Nullable Integer npcIndex)
 	{
 		for (Fight fight : fights)
@@ -733,11 +773,90 @@ final class FightTracker
 	 * earlier swing instead of the one that just began.
 	 */
 	@Nullable
+	/**
+	 * A hitsplat of the punish bonus while Doom is charging. It stays off the
+	 * weapon swing so the special's own hits are left as they landed.
+	 */
+	private boolean isPunish(Fight fight, HitRecord hit)
+	{
+		if (punishBonus <= 0 || hit.getTick() < punishStart || hit.getTick() > punishUntil)
+		{
+			return false;
+		}
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() != DamageSource.WEAPON || hit.isBlock() || hit.isSplash())
+		{
+			return false;
+		}
+		if (hit.getAmount() != punishBonus)
+		{
+			return false;
+		}
+		boolean doom = DoomDelve.surface(hit.getNpcId()) || (hit.getNpcIndex() != null && hit.getNpcIndex() == punishNpc);
+		if (!doom)
+		{
+			return false;
+		}
+		if (hasDifferentWeaponDamage(fight, hit))
+		{
+			return true;
+		}
+		AttackSwing swing = selectSwing(fight, hit);
+		int slots = swing == null ? 0 : splatsFor(swing);
+		return slots > 0 && bonusAlready(fight, swing) >= slots;
+	}
+
+	private boolean hasDifferentWeaponDamage(Fight fight, HitRecord hit)
+	{
+		for (HitRecord previous : fight.getHits())
+		{
+			if (previous.getDirection() != DamageDirection.OUTGOING || previous.isBlock() || previous.getAmount() <= 0)
+			{
+				continue;
+			}
+			if (previous.getTick() < punishStart || previous.getTick() > hit.getTick())
+			{
+				continue;
+			}
+			if (previous.getSource() != DamageSource.WEAPON && previous.getSource() != DamageSource.PUNISH)
+			{
+				continue;
+			}
+			if (previous.getAmount() != punishBonus)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private int bonusAlready(Fight fight, AttackSwing swing)
+	{
+		int count = 0;
+		for (HitRecord previous : fight.getHits())
+		{
+			if (previous.getAttackId() != null && previous.getAttackId() == swing.getAttackId() && previous.getAmount() == punishBonus && !previous.isBlock())
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
 	private AttackSwing selectSwing(Fight fight, HitRecord hit)
 	{
-		if (hit.getDirection() != DamageDirection.OUTGOING || hit.isBlock())
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() == DamageSource.PUNISH)
 		{
 			return null;
+		}
+		// A missed tile of a special is not a new swing. It stays on that spec.
+		// A block never belongs to a normal swing, so it stays its own row.
+		if (hit.isBlock() || hit.getAmount() <= 0)
+		{
+			AttackSwing spec = openSpec(fight, hit);
+			if (spec != null || hit.isBlock())
+			{
+				return spec;
+			}
 		}
 		AttackSwing best = null;
 		for (AttackSwing swing : fight.getAttacks())
@@ -790,6 +909,35 @@ final class FightTracker
 		return claimed(fight, swing.getAttackId()) < splatsFor(swing);
 	}
 
+	@Nullable
+	private AttackSwing openSpec(Fight fight, HitRecord hit)
+	{
+		AttackSwing best = null;
+		for (AttackSwing swing : fight.getAttacks())
+		{
+			if (!swing.isSpec())
+			{
+				continue;
+			}
+			int gap = hit.getTick() - swing.getTick();
+			if (gap < 0 || gap > swing.getSpeed() + 2)
+			{
+				continue;
+			}
+			Integer swingWeapon = swing.getWeaponItemId();
+			Integer hitWeapon = hit.getWeaponItemId();
+			if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
+			{
+				continue;
+			}
+			if (best == null || swing.getTick() >= best.getTick())
+			{
+				best = swing;
+			}
+		}
+		return best;
+	}
+
 	private Long attackIdFor(Fight fight, HitRecord hit)
 	{
 		if (hit.getDirection() == DamageDirection.OUTGOING && !hit.isBlock())
@@ -817,7 +965,7 @@ final class FightTracker
 		int count = 0;
 		for (HitRecord previous : fight.getHits())
 		{
-			if (!previous.isBlock() && previous.getAttackId() != null && previous.getAttackId() == attackId)
+			if (!previous.isBlock() && previous.getAmount() > 0 && previous.getAttackId() != null && previous.getAttackId() == attackId)
 			{
 				count++;
 			}

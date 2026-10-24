@@ -69,6 +69,26 @@ public final class HitStyle
 		}
 	}
 
+	/**
+	 * Damage the client did not attribute to you. Doom's punish bonus arrives
+	 * this way: it is your hit, but it is not one of the "me" hitsplat ids.
+	 */
+	public static boolean othersDamage(int hitsplatType)
+	{
+		switch (hitsplatType)
+		{
+			case HitsplatID.DAMAGE_OTHER:
+			case HitsplatID.DAMAGE_OTHER_CYAN:
+			case HitsplatID.DAMAGE_OTHER_YELLOW:
+			case HitsplatID.DAMAGE_OTHER_ORANGE:
+			case HitsplatID.DAMAGE_OTHER_WHITE:
+			case HitsplatID.DAMAGE_OTHER_POISE:
+				return true;
+			default:
+				return false;
+		}
+	}
+
 	@Nullable
 	public static HitStyle fromIncomingType(int hitsplatType)
 	{

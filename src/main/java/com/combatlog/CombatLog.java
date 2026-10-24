@@ -173,6 +173,28 @@ public class CombatLog
 		}
 	}
 
+	/**
+	 * Doom's melee charge is open from {@code startTick} through {@code untilTick}.
+	 * Hitsplats of {@code bonus} in that window are the punish.
+	 */
+	public void notePunish(int npcIndex, int startTick, int untilTick, int bonus)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.notePunish(npcIndex, startTick, untilTick, bonus);
+		}
+	}
+
+	public void clearPunish()
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.clearPunish();
+		}
+	}
+
 	/** The attack on this tick spent special attack energy. Its hitsplats are the spec. */
 	public void markSpecSwing(int tick, @Nullable Integer npcIndex)
 	{

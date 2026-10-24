@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
+import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.NpcID;
 import net.runelite.api.gameval.SpotanimID;
 import net.runelite.api.gameval.SpriteID;
@@ -1417,6 +1418,11 @@ public class CombatLogTest
 		return null;
 	}
 
+	private static HitRecord doomHit(int tick, int weapon, int amount, boolean block)
+	{
+		return new HitRecord(tick * 600L, "Doom of Mokhaiotl", TargetKind.NPC, NpcID.DOM_BOSS, 4, weapon, amount, block ? HitKind.BLOCK : HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
 	private static HitRecord npcHit(int tick, String name, int index, int npcId, int amount)
 	{
 		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
@@ -1482,13 +1488,176 @@ public class CombatLogTest
 	}
 
 	@Test
-	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
+	public void combatDummyShowsItsNameAndIcon()
 	{
-		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.
-		boolean[] keep = OwnHits.keep(new int[] {20, 54}, 70, true, false);
+		HitRecord hit = new HitRecord(1_000L, "<col=00ffffff>Combat dummy", TargetKind.NPC, NpcID.POH_COMBAT_DUMMY_NPC, 4, null, 20, HitKind.HIT, null);
+		assertEquals("Combat dummy", hit.getTargetName());
+
+		CombatLog log = new CombatLog(10);
+		log.add(hit);
+		Fight fight = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals("Combat dummy", fight.getName());
+		assertEquals(Integer.valueOf(NpcID.POH_COMBAT_DUMMY_NPC), fight.getNpcId());
+
+		String hosted = "https://raw.githubusercontent.com/AdancitoPR/runelite-combatlog/npc-icons/icons/" + CombatDummy.ICON_ID + ".png";
+		assertEquals(hosted, MonsterIcons.iconUrl(NpcID.POH_COMBAT_DUMMY_NPC).toString());
+		assertEquals(hosted, MonsterIcons.iconUrl(NpcID.POH_COMBAT_DUMMY_UPGRADED_NPC).toString());
+		assertTrue(CombatDummy.named("Combat dummy"));
+		assertNull(new MonsterIcons().get(301));
+	}
+
+	@Test
+	public void halberdZeroAfterTheSpecIsNotAnotherHit()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.add(doomHit(11, 23987, 22, false));
+		log.add(doomHit(11, 23987, 32, false));
+		log.add(doomHit(15, 23987, 0, true));
+		log.add(doomHit(16, 12926, 0, true));
+
+		List<AttackRow> rows = AttackRow.group(log.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("0", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals(Integer.valueOf(12926), rows.get(0).first().getWeaponItemId());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(rows.get(1)));
+
+		assertTrue(StrayZero.drop(0, false, 23987, 12926));
+		assertFalse(StrayZero.drop(0, false, 12926, 12926));
+		assertFalse(StrayZero.drop(23, false, 23987, 12926));
+		assertFalse(StrayZero.drop(0, true, 23987, 12926));
+	}
+
+	@Test
+	public void meleePunishIsLoggedApartFromTheSpecial()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.notePunish(4, 10, 24, DoomPunish.bonus(115));
+		log.add(doomHit(11, 23987, 22, false));
+		log.add(doomHit(11, 23987, 32, false));
+		log.add(doomHit(14, 23987, 23, false));
+		log.add(doomHit(15, 23987, 0, true));
+
+		Fight fight = log.summarize(20_000L, 20).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("(Punish) 23", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals(DamageSource.PUNISH, rows.get(0).first().getSource());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(rows.get(1)));
+		assertEquals(22 + 32 + 23, fight.damageDone());
+
+		CombatLog sameTick = new CombatLog(10);
+		sameTick.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		sameTick.markSpecSwing(10, 4);
+		sameTick.notePunish(4, 10, 24, 23);
+		sameTick.add(doomHit(11, 23987, 22, false));
+		sameTick.add(doomHit(11, 23987, 32, false));
+		sameTick.add(doomHit(11, 23987, 23, false));
+		List<AttackRow> together = AttackRow.group(sameTick.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals("(Punish) 23", CombatLogFormatter.rowAmount(together.get(0)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(together.get(1)));
+
+		CombatLog only = new CombatLog(10);
+		only.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		only.markSpecSwing(10, 4);
+		only.notePunish(4, 10, 24, 23);
+		only.add(doomHit(11, 23987, 23, false));
+		AttackRow alone = AttackRow.group(only.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING)).get(0);
+		assertEquals("Spec", CombatLogFormatter.rowKind(alone));
+		assertEquals("23", CombatLogFormatter.rowAmount(alone));
+
+		assertEquals(23, DoomPunish.bonus(115));
+		assertEquals(23, DoomPunish.bonus(119));
+		assertEquals(22, DoomPunish.bonus(114));
+		assertEquals(0, DoomPunish.bonus(0));
+		assertTrue(DoomPunish.charging(AnimationID.DOM_BEAM_CHARGE));
+		assertTrue(DoomPunish.charging(AnimationID.DOM_BEAM_CHARGE_LOOP));
+		assertTrue(DoomPunish.cancelled(AnimationID.DOM_BEAM_CANCEL));
+		assertTrue(DoomPunish.fired(AnimationID.DOM_BEAM_FIRE));
+		assertFalse(DoomPunish.charging(AnimationID.DOM_BEAM_FIRE));
+	}
+
+	@Test
+	public void halberdPunishSplatsAreKeptWhenExperienceIgnoresThem()
+	{
+		int[] amounts = {17, 16, 16, 24};
+		boolean[] keep = OwnHits.keep(amounts, 33 * 4, false, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertTrue(keep[1]);
+		assertFalse(keep[2]);
+		assertFalse(keep[3]);
+		PunishHits.restore(keep, amounts, 24, new boolean[] {true, true, true, true});
+		assertFalse(keep[2]);
+		assertTrue(keep[3]);
+
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.notePunish(4, 10, 24, 24);
+		log.add(doomHit(11, 23987, 17, false));
+		log.add(doomHit(11, 23987, 16, false));
+		log.add(doomHit(11, 23987, 16, false).asSource(DamageSource.PUNISH, 23987, null));
+		log.add(doomHit(11, 23987, 24, false).asSource(DamageSource.PUNISH, 23987, null));
+
+		List<AttackRow> rows = AttackRow.group(log.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("(Punish) (16+24) 40", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(17+16) 33", CombatLogFormatter.rowAmount(rows.get(1)));
+		assertTrue(HitStyle.othersDamage(HitsplatID.DAMAGE_OTHER));
+		assertNull(HitStyle.fromHitsplatType(HitsplatID.DAMAGE_OTHER));
+	}
+
+	@Test
+	public void grubExplosionIsNotLoggedAsPunish()
+	{
+		// The spec is 12. The 99 and 100 are grubs exploding on the shield, and 15 is the bonus.
+		int[] amounts = {12, 99, 100, 15};
+		boolean[] keep = OwnHits.keep(amounts, 12 * 4, false, false);
 		assertNotNull(keep);
 		assertTrue(keep[0]);
 		assertFalse(keep[1]);
+		assertFalse(keep[2]);
+		assertFalse(keep[3]);
+		PunishHits.restore(keep, amounts, 15, new boolean[] {true, true, true, true});
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+		assertFalse(keep[2]);
+		assertTrue(keep[3]);
+	}
+
+	@Test
+	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
+	{
+		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.
+		int[] amounts = {20, 54};
+		boolean[] keep = OwnHits.keep(amounts, 70, true, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+		PunishHits.restore(keep, amounts, 24, new boolean[] {false, false});
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+
+		int[] mixed = {17, 16, 54};
+		boolean[] mixedKeep = OwnHits.keep(mixed, 33 * 4, false, false);
+		assertNotNull(mixedKeep);
+		assertTrue(mixedKeep[0]);
+		assertTrue(mixedKeep[1]);
+		assertFalse(mixedKeep[2]);
+		PunishHits.restore(mixedKeep, mixed, 24, new boolean[] {true, true, false});
+		assertTrue(mixedKeep[0]);
+		assertTrue(mixedKeep[1]);
+		assertFalse(mixedKeep[2]);
 
 		HitRecord max = new HitRecord(1_000L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 20, HitKind.MAX_HIT, null);
 		assertEquals("20 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Collections.singletonList(max)).get(0)));
