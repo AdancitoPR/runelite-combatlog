@@ -19,6 +19,7 @@ public final class SpecMarker
 	private int remaining;
 	private int serial;
 	private int armTick = -1;
+	private int holdTicks = SPEC_WINDOW;
 
 	public void arm(@Nullable Integer npcIndex, int weaponId, int tick)
 	{
@@ -26,6 +27,7 @@ public final class SpecMarker
 		this.remaining = SpecWeapons.splats(weaponId);
 		this.serial++;
 		this.armTick = tick;
+		this.holdTicks = SpecWeapons.sameTick(weaponId) ? 0 : SPEC_WINDOW;
 	}
 
 	/**
@@ -47,7 +49,7 @@ public final class SpecMarker
 	 */
 	public void expire(int tick)
 	{
-		if (remaining > 0 && armTick >= 0 && tick - armTick > SPEC_WINDOW)
+		if (remaining > 0 && armTick >= 0 && tick - armTick > holdTicks)
 		{
 			remaining = 0;
 		}
@@ -58,6 +60,7 @@ public final class SpecMarker
 		npcIndex = null;
 		remaining = 0;
 		armTick = -1;
+		holdTicks = SPEC_WINDOW;
 	}
 
 	public int serial()

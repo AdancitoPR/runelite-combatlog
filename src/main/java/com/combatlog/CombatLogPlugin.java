@@ -1490,7 +1490,7 @@ public class CombatLogPlugin extends Plugin
 			}
 			if (source == DamageSource.THRALL)
 			{
-				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
+				record = record.asSource(DamageSource.THRALL, null, thrallNpcId).withPrayer(null);
 			}
 			joinDoomSurface(hit.npcIndex, record.getNpcId());
 			combatLog.add(record);

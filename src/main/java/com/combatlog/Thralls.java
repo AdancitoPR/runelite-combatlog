@@ -1,13 +1,24 @@
 package com.combatlog;
 
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
+import javax.imageio.ImageIO;
+
 /**
  * Thralls summoned with the Book of the Dead. Lesser thralls hit 0–1,
- * superior 0–2, and greater 0–3. The fallback icon is the greater ghostly
- * thrall, used only when a thrall hit was recorded without its NPC.
+ * superior 0–2, and greater 0–3. The icon is that thrall's resurrect spell,
+ * drawn in the weapon slot. The fallback is the greater ghostly thrall,
+ * used only when a thrall hit was recorded without its NPC.
  */
 final class Thralls
 {
 	static final int FALLBACK_NPC_ID = 10880;
+
+	private static final Map<Integer, BufferedImage> ICONS = new ConcurrentHashMap<>();
 
 	private Thralls()
 	{
@@ -17,6 +28,76 @@ final class Thralls
 	{
 		Integer id = hit.getSourceNpcId();
 		return id != null && id > 0 ? id : FALLBACK_NPC_ID;
+	}
+
+	/**
+	 * The resurrect-spell picture for this hit, or the greater ghostly thrall
+	 * when the NPC was not one of the nine thralls.
+	 */
+	@Nullable
+	static BufferedImage image(HitRecord hit)
+	{
+		int id = iconId(hit);
+		if (maxHit(id) <= 0)
+		{
+			id = FALLBACK_NPC_ID;
+		}
+		BufferedImage cached = ICONS.get(id);
+		if (cached != null)
+		{
+			return cached;
+		}
+		BufferedImage loaded = read(id);
+		if (loaded == null)
+		{
+			return null;
+		}
+		ICONS.put(id, loaded);
+		return loaded;
+	}
+
+	static String name(int npcId)
+	{
+		switch (npcId)
+		{
+			case 10878:
+				return "Lesser ghostly thrall";
+			case 10879:
+				return "Superior ghostly thrall";
+			case 10880:
+				return "Greater ghostly thrall";
+			case 10881:
+				return "Lesser skeletal thrall";
+			case 10882:
+				return "Superior skeletal thrall";
+			case 10883:
+				return "Greater skeletal thrall";
+			case 10884:
+				return "Lesser zombified thrall";
+			case 10885:
+				return "Superior zombified thrall";
+			case 10886:
+				return "Greater zombified thrall";
+			default:
+				return "Thrall";
+		}
+	}
+
+	@Nullable
+	private static BufferedImage read(int npcId)
+	{
+		try (InputStream in = Thralls.class.getResourceAsStream("/com/combatlog/thrall/" + npcId + ".png"))
+		{
+			if (in == null)
+			{
+				return null;
+			}
+			return ImageIO.read(in);
+		}
+		catch (IOException ex)
+		{
+			return null;
+		}
 	}
 
 	/**

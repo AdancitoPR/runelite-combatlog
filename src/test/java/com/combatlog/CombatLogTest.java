@@ -14,6 +14,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -295,6 +296,34 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void unattributedIncomingDoesNotOpenAFightNamedTaken()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 10, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		CombatSnapshot snapshot = log.summarize(24_000L, 40, DamageView.BOTH);
+		assertEquals(0, snapshot.getFights().size());
+		assertEquals(0L, snapshot.getDamageTaken());
+	}
+
+	@Test
+	public void unattributedIncomingDoesNotStartAFightBesideSeveralOpponents()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(2, "Guard", 8, 302, 5));
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 8, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		List<Fight> fights = log.summarize(24_000L, 40, DamageView.BOTH).getFights();
+		assertEquals(2, fights.size());
+		for (Fight fight : fights)
+		{
+			assertNotEquals("Taken", fight.getName());
+			assertEquals(0, fight.damageTaken());
+		}
+	}
+
+	@Test
 	public void aSecondNpcGetsItsOwnFight()
 	{
 		CombatLog log = new CombatLog(10);
@@ -519,6 +548,37 @@ public class CombatLogTest
 		assertEquals(4, SpecWeapons.splats(13652));
 		assertEquals(4, SpecWeapons.splats(26708));
 		assertEquals(1, SpecWeapons.splats(1333));
+		assertEquals(3, SpecWeapons.splats(23987));
+		assertEquals(3, SpecWeapons.splats(24125));
+		assertEquals(3, SpecWeapons.splats(13091));
+		assertEquals(1, SpecWeapons.splats(23989));
+	}
+
+	@Test
+	public void crystalHalberdSweepIsOneSpecAndDoesNotClaimTheNextSwing()
+	{
+		SpecMarker marker = new SpecMarker();
+		marker.arm(4, 23987, 20);
+		int serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(4, 23987, 40);
+		serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		marker.expire(41);
+		assertEquals(0, marker.serial());
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		HitRecord miss = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 0, HitKind.BLOCK, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 1);
+		HitRecord damage = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 38, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, 4L, 2);
+		List<AttackRow> rows = AttackRow.group(Arrays.asList(miss, damage));
+		assertEquals(1, rows.size());
+		assertTrue(rows.get(0).isSpecial());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("38", CombatLogFormatter.rowAmount(rows.get(0)));
 	}
 
 	@Test
@@ -782,8 +842,8 @@ public class CombatLogTest
 		HitRecord second = attackHit(1, 8, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 2);
 		List<AttackRow> rows = AttackRow.group(Arrays.asList(first, second));
 		assertEquals(1, rows.size());
-		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
-		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals("(4+8) 12", CombatLogFormatter.attackLabel(rows.get(0)));
+		assertEquals("(4+8) 12", CombatLogFormatter.rowAmount(rows.get(0)));
 
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
@@ -801,7 +861,7 @@ public class CombatLogTest
 		assertEquals(1, claws.size());
 		assertTrue(claws.get(0).isSpecial());
 		assertEquals("Spec", CombatLogFormatter.rowKind(claws.get(0)));
-		assertEquals("31", CombatLogFormatter.rowAmount(claws.get(0)));
+		assertEquals("(18+9+4) 31", CombatLogFormatter.rowAmount(claws.get(0)));
 
 		List<AttackRow> daggers = AttackRow.group(Arrays.asList(
 			specHit(20, 1215, 12, false),
@@ -809,6 +869,20 @@ public class CombatLogTest
 		assertEquals(1, daggers.size());
 		assertFalse(daggers.get(0).isSpecial());
 		assertEquals("18", CombatLogFormatter.rowAmount(daggers.get(0)));
+
+		HitRecord first = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 1215, 20, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 1);
+		HitRecord second = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 1215, 30, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 2);
+		List<AttackRow> daggerSpec = AttackRow.group(Arrays.asList(first, second));
+		assertEquals(1, daggerSpec.size());
+		assertEquals("Spec", CombatLogFormatter.rowKind(daggerSpec.get(0)));
+		assertEquals("(20+30) 50", CombatLogFormatter.rowAmount(daggerSpec.get(0)));
+
+		HitRecord miss = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 0, HitKind.BLOCK, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 3);
+		HitRecord one = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 12, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 4);
+		HitRecord two = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 10, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 5);
+		List<AttackRow> sweep = AttackRow.group(Arrays.asList(miss, one, two));
+		assertEquals(1, sweep.size());
+		assertEquals("(12+10) 22", CombatLogFormatter.rowAmount(sweep.get(0)));
 
 		List<AttackRow> separate = AttackRow.group(Arrays.asList(
 			specHit(30, 13652, 10, false),
@@ -995,6 +1069,16 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
 		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+
+		java.awt.image.BufferedImage greaterGhost = Thralls.image(hit.asSource(DamageSource.THRALL, null, 10880));
+		assertNotNull(greaterGhost);
+		assertEquals(20, greaterGhost.getWidth());
+		assertEquals(20, greaterGhost.getHeight());
+		java.awt.image.BufferedImage lesserSkeleton = Thralls.image(hit.asSource(DamageSource.THRALL, null, 10881));
+		assertNotNull(lesserSkeleton);
+		assertNotEquals(greaterGhost, lesserSkeleton);
+		assertEquals("Lesser skeletal thrall", Thralls.name(10881));
+		assertEquals(greaterGhost, Thralls.image(hit.asSource(DamageSource.THRALL, null, null)));
 	}
 
 	@Test

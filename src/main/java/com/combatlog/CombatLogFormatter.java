@@ -67,20 +67,76 @@ public final class CombatLogFormatter
 
 	public static String rowAmount(AttackRow row)
 	{
-		if (row.isBlock() || row.isSplash())
+		if (row.isSplash())
+		{
+			return "0";
+		}
+		String hits = specHits(row);
+		if (hits != null)
+		{
+			String text = hits + " " + row.getTotal();
+			if (maxHit(row))
+			{
+				text += " (Max hit)";
+			}
+			return text;
+		}
+		if (row.isBlock())
 		{
 			return "0";
 		}
 		String text = Integer.toString(row.getTotal());
+		if (maxHit(row))
+		{
+			text += " (Max hit)";
+		}
+		return text;
+	}
+
+	/**
+	 * The separate damaging hits of one special, such as {@code (20+30)}. A miss
+	 * is left out, and a single hitsplat has nothing to spell out.
+	 */
+	@Nullable
+	public static String specHits(AttackRow row)
+	{
+		if (!row.isSpecial() || row.getHits().size() < 2)
+		{
+			return null;
+		}
+		StringBuilder parts = new StringBuilder("(");
+		int shown = 0;
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.isBlock() || hit.getAmount() <= 0)
+			{
+				continue;
+			}
+			if (shown > 0)
+			{
+				parts.append('+');
+			}
+			parts.append(hit.getAmount());
+			shown++;
+		}
+		if (shown < 2)
+		{
+			return null;
+		}
+		parts.append(')');
+		return parts.toString();
+	}
+
+	private static boolean maxHit(AttackRow row)
+	{
 		for (HitRecord hit : row.getHits())
 		{
 			if (hit.getKind() == HitKind.MAX_HIT)
 			{
-				text += " (Max hit)";
-				break;
+				return true;
 			}
 		}
-		return text;
+		return false;
 	}
 
 	public static String amountLabel(HitRecord hit)
@@ -184,15 +240,7 @@ public final class CombatLogFormatter
 	{
 		if (row.isSpecial())
 		{
-			String text = Integer.toString(row.getTotal());
-			for (HitRecord hit : row.getHits())
-			{
-				if (hit.getKind() == HitKind.MAX_HIT)
-				{
-					text += " (Max hit)";
-					break;
-				}
-			}
+			String text = rowAmount(row);
 			if (row.getOverkill() > 0)
 			{
 				text += " (" + row.getOverkill() + " overkill)";
