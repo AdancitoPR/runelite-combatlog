@@ -1018,7 +1018,7 @@ class CombatLogPanel extends PluginPanel
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!thrall && !status && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
+		if (!status && (thrall || hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
 		{
 			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
@@ -1029,10 +1029,6 @@ class CombatLogPanel extends PluginPanel
 
 		JPanel figures = new JPanel(new BorderLayout(4, 0));
 		figures.setOpaque(false);
-		if (thrall)
-		{
-			figures.add(thrallSlot(hit), BorderLayout.WEST);
-		}
 		figures.add(amountFigure(attack, hit), BorderLayout.CENTER);
 
 		row.add(lead, BorderLayout.WEST);
@@ -1053,11 +1049,11 @@ class CombatLogPanel extends PluginPanel
 	private JComponent amountFigure(AttackRow attack, HitRecord hit)
 	{
 		BufferedImage splat = hitSplat(attack);
-		if (splat == null)
+		if (splat == null || CombatLogFormatter.specHits(attack) != null)
 		{
 			JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
 			amount.setFont(uiFont());
-			amount.setForeground(DamageColors.forHit(hit));
+			amount.setForeground(attack.isSpecial() ? DamageColors.SPEC : DamageColors.forHit(hit));
 			holdWidth(amount);
 			return amount;
 		}
@@ -1069,7 +1065,7 @@ class CombatLogPanel extends PluginPanel
 		}
 		JLabel note = new JLabel("(Max hit)");
 		note.setFont(uiFont());
-		note.setForeground(DamageColors.forHit(hit));
+		note.setForeground(attack.isSpecial() ? DamageColors.SPEC : DamageColors.forHit(hit));
 		JPanel both = new JPanel(new BorderLayout(4, 0));
 		both.setOpaque(false);
 		both.add(icon, BorderLayout.WEST);
@@ -1222,16 +1218,17 @@ class CombatLogPanel extends PluginPanel
 		icon.setOpaque(false);
 		icon.setHorizontalAlignment(SwingConstants.CENTER);
 		icon.setVerticalAlignment(SwingConstants.CENTER);
-		Dimension size = new Dimension(MonsterIcons.SIZE, MonsterIcons.SIZE);
+		Dimension size = new Dimension(WeaponIcons.SIZE, WeaponIcons.SIZE);
 		icon.setPreferredSize(size);
 		icon.setMinimumSize(size);
 		icon.setMaximumSize(size);
-		BufferedImage image = monsterIcons.get(Thralls.iconId(hit));
+		BufferedImage image = Thralls.image(hit);
 		if (image != null)
 		{
 			icon.setIcon(new ImageIcon(image));
 		}
-		icon.setToolTipText("Thrall");
+		int id = Thralls.iconId(hit);
+		icon.setToolTipText(Thralls.maxHit(id) > 0 ? Thralls.name(id) : Thralls.name(Thralls.FALLBACK_NPC_ID));
 		return icon;
 	}
 
@@ -1275,7 +1272,11 @@ class CombatLogPanel extends PluginPanel
 		JPanel icons = new JPanel();
 		icons.setLayout(new BoxLayout(icons, BoxLayout.X_AXIS));
 		icons.setOpaque(false);
-		if (hit.getWeaponItemId() != null)
+		if (hit.getSource() == DamageSource.THRALL)
+		{
+			icons.add(thrallSlot(hit));
+		}
+		else if (hit.getWeaponItemId() != null)
 		{
 			icons.add(weaponSlot(hit));
 		}
@@ -1283,7 +1284,7 @@ class CombatLogPanel extends PluginPanel
 		{
 			icons.add(attackStyleSlot(hit));
 		}
-		if (hit.getPrayerIcon() != null)
+		if (hit.getSource() != DamageSource.THRALL && hit.getPrayerIcon() != null)
 		{
 			if (icons.getComponentCount() > 0)
 			{

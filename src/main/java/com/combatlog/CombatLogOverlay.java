@@ -224,11 +224,13 @@ class CombatLogOverlay extends OverlayPanel
 		boolean status = hit.getSource().isStatus();
 		String kind = CombatLogFormatter.rowKind(attack);
 		Color kindColor = splash ? DamageColors.SPLASH : special && !status ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING;
-		BufferedImage splat = config.damageAmount() == DamageAmount.HITSPLAT && gameHitsplats != null
+		boolean spelledOut = CombatLogFormatter.specHits(attack) != null;
+		BufferedImage splat = !spelledOut && config.damageAmount() == DamageAmount.HITSPLAT && gameHitsplats != null
 			? gameHitsplats.image(attack)
 			: null;
 		String amount = splat == null ? CombatLogFormatter.rowAmount(attack) : maxNote(attack);
-		return new IconLine(kind, kindColor, amount, DamageColors.forHit(hit), hitIcon(hit), splat);
+		Color amountColor = special && !status ? DamageColors.SPEC : DamageColors.forHit(hit);
+		return new IconLine(kind, kindColor, amount, amountColor, hitIcon(hit), splat);
 	}
 
 	private BufferedImage hitIcon(HitRecord hit)
@@ -239,7 +241,7 @@ class CombatLogOverlay extends OverlayPanel
 		}
 		if (hit.getSource() == DamageSource.THRALL)
 		{
-			return monsterIcons.get(Thralls.iconId(hit));
+			return Thralls.image(hit);
 		}
 		if (hit.getDirection() == DamageDirection.INCOMING && hit.getWeaponItemId() != null)
 		{

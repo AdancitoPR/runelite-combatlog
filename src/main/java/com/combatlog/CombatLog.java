@@ -38,8 +38,12 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
-			version++;
 			HitRecord stored = fights.accept(record);
+			if (stored == null)
+			{
+				return;
+			}
+			version++;
 			List<HitRecord> next = new ArrayList<>(Math.min(hits.size() + 1, maxEntries));
 			next.add(stored);
 			int keep = maxEntries - 1;

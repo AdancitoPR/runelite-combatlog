@@ -34,13 +34,18 @@ final class FightTracker
 	private int nextSequence;
 	private int lastTick;
 
+	@Nullable
 	HitRecord accept(HitRecord hit)
 	{
+		Fight fight = locate(hit);
+		if (fight == null)
+		{
+			return null;
+		}
 		if (hit.getTick() > lastTick)
 		{
 			lastTick = hit.getTick();
 		}
-		Fight fight = locate(hit);
 		Long attackId = hit.getAttackId() != null ? hit.getAttackId() : attackIdFor(fight, hit);
 		HitRecord stored = hit.withMeta(hit.getTick(), fight.getId(), attackId, hit.getWeaponItemId(), hit.isSpecial(), hit.getSource(), hit.getOverkill(), nextSequence++);
 		fight.addHit(stored);
@@ -574,6 +579,12 @@ final class FightTracker
 			if (only != null)
 			{
 				return only;
+			}
+			// Incoming damage with no attacker used to open a fight named "Taken"
+			// that never closed, because nothing can despawn. Leave it off the log.
+			if (hit.getDirection() == DamageDirection.INCOMING)
+			{
+				return null;
 			}
 		}
 
