@@ -152,6 +152,28 @@ public class CombatLogPanelTest
 	}
 
 	@Test
+	public void collapsedFightFooterStaysInsideTheSidebar() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+			log.add(new HitRecord(600L, "Gemstone Crab", TargetKind.NPC, 14779, 4, 12926, 10, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+			log.noteAttack(8, 4, "Gemstone Crab", 12926, 2);
+			CombatLogPanel panel = new CombatLogPanel(log, config(0), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			JLabel footer = findLabelContaining(panel, "Lost");
+			assertNotNull(footer);
+			assertTrue(footer.getText().contains("ticks"));
+			assertFalse(footer.getText().contains("nowrap"));
+			int room = PluginPanel.PANEL_WIDTH - (PluginPanel.BORDER_OFFSET + 8) * 2;
+			assertTrue("footer preferred " + footer.getPreferredSize().width + " exceeds the sidebar room " + room,
+				footer.getPreferredSize().width <= room);
+		});
+	}
+
+	@Test
 	public void latestFinishedFightStaysOpenUntilTheNextOneFinishes() throws Exception
 	{
 		SwingUtilities.invokeAndWait(() ->

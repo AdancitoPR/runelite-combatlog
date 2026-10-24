@@ -1424,6 +1424,31 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void blowpipeHitsStayOnTheirOwnRows()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+		log.add(npcHit(1, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 17));
+		log.add(npcHit(3, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 14));
+		log.add(npcHit(5, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 14));
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(3, rows.size());
+		assertEquals(14, rows.get(0).getTotal());
+		assertEquals(14, rows.get(1).getTotal());
+		assertEquals(17, rows.get(2).getTotal());
+
+		CombatLog scythe = new CombatLog(10);
+		scythe.noteAttack(1, 4, "Guard", 22325, 5);
+		scythe.add(npcHit(1, "Guard", 4, 301, 12));
+		scythe.add(npcHit(1, "Guard", 4, 301, 14));
+		scythe.add(npcHit(1, "Guard", 4, 301, 10));
+		List<AttackRow> sweep = AttackRow.group(scythe.summarize(2_000L, 10).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(1, sweep.size());
+		assertEquals(36, sweep.get(0).getTotal());
+	}
+
+	@Test
 	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
 	{
 		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.

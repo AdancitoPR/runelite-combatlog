@@ -655,10 +655,17 @@ final class FightTracker
 			{
 				AttackSwing swing = fight.getAttacks().get(i);
 				int gap = hit.getTick() - swing.getTick();
-				if (gap >= 0 && gap <= WEAPON_WINDOW)
+				if (gap < 0)
 				{
-					return swing.getAttackId();
+					continue;
 				}
+				// The next blowpipe swing is only two ticks later. An 8 tick window
+				// folded those hits into the first swing and showed one total.
+				if (gap >= swing.getSpeed() || claimed(fight, swing.getAttackId()) >= splatsFor(swing))
+				{
+					break;
+				}
+				return swing.getAttackId();
 			}
 			for (int i = fight.getHits().size() - 1; i >= 0; i--)
 			{
@@ -667,7 +674,8 @@ final class FightTracker
 				{
 					continue;
 				}
-				if (previous.getTick() > 0 && previous.getTick() == hit.getTick() && Objects.equals(previous.getWeaponItemId(), hit.getWeaponItemId()) && previous.getAttackId() != null)
+				if (previous.getTick() > 0 && previous.getTick() == hit.getTick() && Objects.equals(previous.getWeaponItemId(), hit.getWeaponItemId()) && previous.getAttackId() != null
+					&& claimed(fight, previous.getAttackId()) < splatsFor(previous.getWeaponItemId()))
 				{
 					return previous.getAttackId();
 				}
@@ -675,6 +683,43 @@ final class FightTracker
 			}
 		}
 		return nextAttackId++;
+	}
+
+	private static int claimed(Fight fight, long attackId)
+	{
+		int count = 0;
+		for (HitRecord previous : fight.getHits())
+		{
+			if (!previous.isBlock() && previous.getAttackId() != null && previous.getAttackId() == attackId)
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private static int splatsFor(AttackSwing swing)
+	{
+		return splatsFor(swing.getWeaponItemId());
+	}
+
+	private static int splatsFor(@Nullable Integer weaponId)
+	{
+		if (weaponId == null || weaponId <= 0)
+		{
+			return 1;
+		}
+		// A scythe swing on a large monster lands three hitsplats. A normal
+		// blowpipe swing lands one, so later hits must not join that row.
+		if (weaponId == 22325 || weaponId == 25736 || weaponId == 25739)
+		{
+			return 3;
+		}
+		if (weaponId == 28997)
+		{
+			return 2;
+		}
+		return Math.max(1, SpecWeapons.splats(weaponId));
 	}
 
 	@Nullable

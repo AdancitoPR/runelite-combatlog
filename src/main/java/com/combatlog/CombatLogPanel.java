@@ -763,7 +763,7 @@ class CombatLogPanel extends PluginPanel
 		String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
 		if (footer != null)
 		{
-			block.add(noteLabel(footer, true));
+			block.add(noteLabel(footer));
 		}
 		block.add(Box.createVerticalStrut(2));
 		installDeleteMenu(block, fight);
@@ -855,19 +855,20 @@ class CombatLogPanel extends PluginPanel
 		String summary = FightSummary.groupLine(group);
 		if (summary != null && snapshot.getView() != DamageView.INCOMING)
 		{
-			block.add(noteLabel(summary, false));
+			block.add(noteLabel(summary));
 		}
 		fitRow(block);
 		return block;
 	}
 
-	private static JLabel noteLabel(String text, boolean nowrap)
+	private static JLabel noteLabel(String text)
 	{
-		String style = nowrap ? "width:209px;white-space:nowrap" : "width:" + WRAPPED_TEXT_WIDTH + "px";
-		JLabel label = new JLabel("<html><body style='" + style + "'>" + text + "</body></html>");
+		JLabel label = new JLabel("<html><body style='width:" + WRAPPED_TEXT_WIDTH + "px'>" + text + "</body></html>");
 		label.setFont(uiFont());
 		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		label.setAlignmentX(LEFT_ALIGNMENT);
+		Dimension size = label.getPreferredSize();
+		label.setMaximumSize(new Dimension(size.width, size.height));
 		return label;
 	}
 
