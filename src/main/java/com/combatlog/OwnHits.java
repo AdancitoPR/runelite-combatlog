@@ -25,20 +25,12 @@ final class OwnHits
 	{
 		if (styleXp <= 0)
 		{
-			// Away from the crab a quiet tick is a block, not somebody else's hit.
-			if (!crab)
-			{
-				return null;
-			}
-			boolean[] keep = new boolean[amounts.length];
-			for (int i = 0; i < amounts.length; i++)
-			{
-				keep[i] = amounts[i] <= 0;
-			}
-			return keep;
+			// No experience this tick does not mean the hitsplats are someone
+			// else's. Dropping them erased real blowpipe and halberd hits.
+			return null;
 		}
 		boolean[] normal = subset(amounts, damage(styleXp, 4));
-		boolean[] reduced = subset(amounts, damage(styleXp, 7, 2));
+		boolean[] reduced = subset(amounts, crabDamage(styleXp));
 		boolean[] chosen = crab ? first(reduced, normal) : first(normal, reduced);
 		if (chosen == null && magicOnly)
 		{
@@ -66,22 +58,29 @@ final class OwnHits
 	}
 
 	/**
-	 * {@code styleXp * numerator / denominator} when that is a whole number of damage.
-	 * The Gemstone Crab uses 7/2, which is 3.5 experience per damage.
+	 * Damage whose 3.5 experience is within one point of {@code styleXp}.
+	 * The crab grants 3.5 per damage and the client reports whole experience,
+	 * so 11 damage can arrive as 38 or 39.
 	 */
-	private static int damage(int styleXp, int denominator, int numerator)
+	private static int crabDamage(int styleXp)
 	{
-		long scaled = (long) styleXp * numerator;
-		if (scaled % denominator != 0)
+		int best = -1;
+		int bestError = 3;
+		int limit = Math.min(styleXp, 500);
+		for (int damage = 1; damage <= limit; damage++)
 		{
-			return -1;
+			int error = Math.abs(styleXp * 2 - damage * 7);
+			if (error < bestError)
+			{
+				bestError = error;
+				best = damage;
+				if (error == 0)
+				{
+					break;
+				}
+			}
 		}
-		long damage = scaled / denominator;
-		if (damage < 0 || damage > Integer.MAX_VALUE)
-		{
-			return -1;
-		}
-		return (int) damage;
+		return bestError <= 2 ? best : -1;
 	}
 
 	/**

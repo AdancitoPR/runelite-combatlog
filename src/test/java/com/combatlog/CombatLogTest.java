@@ -569,6 +569,9 @@ public class CombatLogTest
 		serial = marker.serial();
 		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
 		marker.expire(41);
+		assertTrue(marker.serial() != 0);
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		marker.expire(42);
 		assertEquals(0, marker.serial());
 		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
 
@@ -610,6 +613,7 @@ public class CombatLogTest
 		CombatLog log = new CombatLog(10);
 		log.noteAttack(10, 4, "Goblin", 1333, 4);
 		assertEquals(Integer.valueOf(1333), log.weaponFor(4, 12, 4151));
+		assertEquals(Integer.valueOf(4151), log.weaponFor(4, 14, 4151));
 		assertEquals(Integer.valueOf(4151), log.weaponFor(4, 30, 4151));
 	}
 
@@ -1446,6 +1450,16 @@ public class CombatLogTest
 		List<AttackRow> sweep = AttackRow.group(scythe.summarize(2_000L, 10).getFights().get(0).visibleHits(DamageView.OUTGOING));
 		assertEquals(1, sweep.size());
 		assertEquals(36, sweep.get(0).getTotal());
+
+		CombatLog switched = new CombatLog(10);
+		switched.noteAttack(1, 4, "Gemstone Crab", 23987, 7);
+		switched.add(new HitRecord(2 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 23987, 30, HitKind.HIT, null, 2, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		switched.add(new HitRecord(4 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 12, HitKind.HIT, null, 4, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		List<AttackRow> weapons = AttackRow.group(switched.summarize(6_000L, 10).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, weapons.size());
+		assertEquals(12, weapons.get(0).getTotal());
+		assertEquals(Integer.valueOf(12926), weapons.get(0).first().getWeaponItemId());
+		assertEquals(30, weapons.get(1).getTotal());
 	}
 
 	@Test
@@ -1477,11 +1491,18 @@ public class CombatLogTest
 		assertFalse(single[1]);
 		assertFalse(single[2]);
 
-		boolean[] blocked = OwnHits.keep(new int[] {54, 0}, 0, true, false);
-		assertNotNull(blocked);
-		assertFalse(blocked[0]);
-		assertTrue(blocked[1]);
+		assertNull(OwnHits.keep(new int[] {54, 0}, 0, true, false));
 		assertNull(OwnHits.keep(new int[] {54, 0}, 0, false, false));
+
+		// 11 damage is 38.5 experience, reported as 38 or 39.
+		boolean[] odd = OwnHits.keep(new int[] {11, 54}, 39, true, false);
+		assertNotNull(odd);
+		assertTrue(odd[0]);
+		assertFalse(odd[1]);
+		boolean[] oddLow = OwnHits.keep(new int[] {54, 11}, 38, true, false);
+		assertNotNull(oddLow);
+		assertFalse(oddLow[0]);
+		assertTrue(oddLow[1]);
 
 		assertNull(OwnHits.keep(new int[] {20}, 65, false, true));
 		assertNull(OwnHits.keep(new int[] {54}, 70, true, false));

@@ -395,7 +395,14 @@ final class FightTracker
 		AttackSwing swing = latestSwing(npcIndex, tick);
 		if (swing != null && swing.getWeaponItemId() != null)
 		{
-			return swing.getWeaponItemId();
+			int gap = tick - swing.getTick();
+			// A hit before the next attack can land still belongs to that swing,
+			// even if the player has already equipped something else.
+			if (equipped == null || equipped.equals(swing.getWeaponItemId()) || gap < swing.getSpeed())
+			{
+				return swing.getWeaponItemId();
+			}
+			return equipped;
 		}
 		return equipped;
 	}
@@ -658,6 +665,12 @@ final class FightTracker
 				if (gap < 0)
 				{
 					continue;
+				}
+				Integer swingWeapon = swing.getWeaponItemId();
+				Integer hitWeapon = hit.getWeaponItemId();
+				if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
+				{
+					break;
 				}
 				// The next blowpipe swing is only two ticks later. An 8 tick window
 				// folded those hits into the first swing and showed one total.

@@ -27,7 +27,9 @@ public final class SpecMarker
 		this.remaining = SpecWeapons.splats(weaponId);
 		this.serial++;
 		this.armTick = tick;
-		this.holdTicks = SpecWeapons.sameTick(weaponId) ? 0 : SPEC_WINDOW;
+		// Melee damage lands the tick after the swing. A zero hold dropped the
+		// crystal halberd special before those hitsplats were classified.
+		this.holdTicks = SpecWeapons.sameTick(weaponId) ? 1 : SPEC_WINDOW;
 	}
 
 	/**

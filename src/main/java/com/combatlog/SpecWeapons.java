@@ -39,8 +39,8 @@ public final class SpecWeapons
 	}
 
 	/**
-	 * The sweep's extra hitsplats all land on the swing's own tick. Spare
-	 * claims must not still be waiting when the next attack lands.
+	 * The sweep's extra hitsplats land on the swing tick or the tick after it.
+	 * Spare claims must be gone on the tick after that.
 	 */
 	public static boolean sameTick(int weaponId)
 	{
