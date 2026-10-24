@@ -383,6 +383,10 @@ public class CombatLogPlugin extends Plugin
 			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
+			if (specMarker.armedOn(tick))
+			{
+				combatLog.markSpecSwing(tick, index);
+			}
 			playerAttackTick = tick;
 			playerAttackIndex = index;
 			swingPrayerTick = tick;
@@ -429,6 +433,12 @@ public class CombatLogPlugin extends Plugin
 				}
 				Integer weapon = equippedWeaponId();
 				specMarker.arm(index, weapon == null ? 0 : weapon, tick);
+				String name = target == null || target.getName() == null ? "" : target.getName();
+				if (index != null || !name.isEmpty())
+				{
+					combatLog.noteAttack(tick, index, name, weapon, attackSpeed(weapon));
+					combatLog.markSpecSwing(tick, index);
+				}
 			}
 			lastSpecPercent = current;
 		}
@@ -1595,7 +1605,10 @@ public class CombatLogPlugin extends Plugin
 					: i == thrallAt
 						? DamageSource.THRALL
 						: DamageSource.WEAPON;
-			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
+			// The spec flag follows the swing that spent the energy. Claiming the
+			// first hitsplat after the energy drop tagged the dart that was
+			// already in the air, and the real blowpipe spec landed as a normal hit.
+			boolean special = false;
 			Integer weapon = source == DamageSource.THRALL || source.isStatus()
 				? null
 				: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);

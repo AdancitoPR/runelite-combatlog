@@ -46,8 +46,25 @@ final class FightTracker
 		{
 			lastTick = hit.getTick();
 		}
-		Long attackId = hit.getAttackId() != null ? hit.getAttackId() : attackIdFor(fight, hit);
-		HitRecord stored = hit.withMeta(hit.getTick(), fight.getId(), attackId, hit.getWeaponItemId(), hit.isSpecial(), hit.getSource(), hit.getOverkill(), nextSequence++);
+		Long attackId = hit.getAttackId();
+		boolean special = hit.isSpecial();
+		if (attackId == null)
+		{
+			AttackSwing swing = selectSwing(fight, hit);
+			if (swing != null)
+			{
+				attackId = swing.getAttackId();
+				if (swing.isSpec() && hit.getSource() == DamageSource.WEAPON)
+				{
+					special = true;
+				}
+			}
+			else
+			{
+				attackId = attackIdFor(fight, hit);
+			}
+		}
+		HitRecord stored = hit.withMeta(hit.getTick(), fight.getId(), attackId, hit.getWeaponItemId(), special, hit.getSource(), hit.getOverkill(), nextSequence++);
 		fight.addHit(stored);
 		byId.put(fight.getId(), fight);
 		return stored;
@@ -372,6 +389,10 @@ final class FightTracker
 		{
 			swing = new AttackSwing(swing.getTick(), swing.getNpcIndex(), swing.getName(), swing.getWeaponItemId(), swing.getSpeed(), nextAttackId++);
 		}
+		if (duplicateSwing(swing))
+		{
+			return;
+		}
 		if (swing.getTick() > lastTick)
 		{
 			lastTick = swing.getTick();
@@ -654,32 +675,125 @@ final class FightTracker
 		}
 	}
 
+	void markSpecSwing(int tick, @Nullable Integer npcIndex)
+	{
+		for (Fight fight : fights)
+		{
+			fight.markSpec(tick, npcIndex);
+		}
+		for (int i = 0; i < queued.size(); i++)
+		{
+			AttackSwing swing = queued.get(i);
+			if (swing.getTick() == tick && (npcIndex == null ? swing.getNpcIndex() == null : npcIndex.equals(swing.getNpcIndex())))
+			{
+				queued.set(i, swing.withSpec());
+			}
+		}
+	}
+
+	private boolean duplicateSwing(AttackSwing swing)
+	{
+		Fight fight = swing.getNpcIndex() != null ? open.get(npcKey(swing.getNpcIndex())) : open.get(playerKey(swing.getName()));
+		if (fight != null)
+		{
+			for (AttackSwing existing : fight.getAttacks())
+			{
+				if (sameSwing(existing, swing))
+				{
+					return true;
+				}
+			}
+		}
+		for (AttackSwing existing : queued)
+		{
+			if (sameSwing(existing, swing))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean sameSwing(AttackSwing existing, AttackSwing swing)
+	{
+		if (existing.getTick() != swing.getTick())
+		{
+			return false;
+		}
+		if (swing.getNpcIndex() != null || existing.getNpcIndex() != null)
+		{
+			return Objects.equals(existing.getNpcIndex(), swing.getNpcIndex());
+		}
+		return existing.getName().equals(swing.getName());
+	}
+
+	/**
+	 * The newest swing this hit can belong to. A blowpipe dart is still in the
+	 * air when the next shot starts, so a hitsplat on that tick stays with the
+	 * earlier swing instead of the one that just began.
+	 */
+	@Nullable
+	private AttackSwing selectSwing(Fight fight, HitRecord hit)
+	{
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.isBlock())
+		{
+			return null;
+		}
+		AttackSwing best = null;
+		for (AttackSwing swing : fight.getAttacks())
+		{
+			if (!openSwing(fight, hit, swing))
+			{
+				continue;
+			}
+			if (swing.getTick() == hit.getTick() && earlierSwingWaiting(fight, hit, swing))
+			{
+				continue;
+			}
+			if (best == null || swing.getTick() >= best.getTick())
+			{
+				best = swing;
+			}
+		}
+		return best;
+	}
+
+	private boolean earlierSwingWaiting(Fight fight, HitRecord hit, AttackSwing swing)
+	{
+		for (AttackSwing older : fight.getAttacks())
+		{
+			if (older.getTick() >= swing.getTick())
+			{
+				break;
+			}
+			if (openSwing(fight, hit, older))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean openSwing(Fight fight, HitRecord hit, AttackSwing swing)
+	{
+		int gap = hit.getTick() - swing.getTick();
+		if (gap < 0 || gap > swing.getSpeed() + 2)
+		{
+			return false;
+		}
+		Integer swingWeapon = swing.getWeaponItemId();
+		Integer hitWeapon = hit.getWeaponItemId();
+		if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
+		{
+			return false;
+		}
+		return claimed(fight, swing.getAttackId()) < splatsFor(swing);
+	}
+
 	private Long attackIdFor(Fight fight, HitRecord hit)
 	{
 		if (hit.getDirection() == DamageDirection.OUTGOING && !hit.isBlock())
 		{
-			for (int i = fight.getAttacks().size() - 1; i >= 0; i--)
-			{
-				AttackSwing swing = fight.getAttacks().get(i);
-				int gap = hit.getTick() - swing.getTick();
-				if (gap < 0)
-				{
-					continue;
-				}
-				Integer swingWeapon = swing.getWeaponItemId();
-				Integer hitWeapon = hit.getWeaponItemId();
-				if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
-				{
-					break;
-				}
-				// The next blowpipe swing is only two ticks later. An 8 tick window
-				// folded those hits into the first swing and showed one total.
-				if (gap >= swing.getSpeed() || claimed(fight, swing.getAttackId()) >= splatsFor(swing))
-				{
-					break;
-				}
-				return swing.getAttackId();
-			}
 			for (int i = fight.getHits().size() - 1; i >= 0; i--)
 			{
 				HitRecord previous = fight.getHits().get(i);
@@ -713,10 +827,20 @@ final class FightTracker
 
 	private static int splatsFor(AttackSwing swing)
 	{
-		return splatsFor(swing.getWeaponItemId());
+		if (swing.isSpec())
+		{
+			int weaponId = swing.getWeaponItemId() == null ? 0 : swing.getWeaponItemId();
+			return Math.max(1, SpecWeapons.splats(weaponId));
+		}
+		return normalSplats(swing.getWeaponItemId());
 	}
 
 	private static int splatsFor(@Nullable Integer weaponId)
+	{
+		return Math.max(normalSplats(weaponId), weaponId == null ? 1 : SpecWeapons.splats(weaponId));
+	}
+
+	private static int normalSplats(@Nullable Integer weaponId)
 	{
 		if (weaponId == null || weaponId <= 0)
 		{
@@ -732,7 +856,7 @@ final class FightTracker
 		{
 			return 2;
 		}
-		return Math.max(1, SpecWeapons.splats(weaponId));
+		return 1;
 	}
 
 	@Nullable

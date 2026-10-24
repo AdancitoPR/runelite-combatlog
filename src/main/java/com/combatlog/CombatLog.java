@@ -173,6 +173,16 @@ public class CombatLog
 		}
 	}
 
+	/** The attack on this tick spent special attack energy. Its hitsplats are the spec. */
+	public void markSpecSwing(int tick, @Nullable Integer npcIndex)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.markSpecSwing(tick, npcIndex);
+		}
+	}
+
 	public void noteAttack(AttackSwing swing)
 	{
 		synchronized (lock)

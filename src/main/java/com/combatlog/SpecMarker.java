@@ -70,6 +70,12 @@ public final class SpecMarker
 		return remaining > 0 ? serial : 0;
 	}
 
+	/** The swing on this tick is the one that spent the special. */
+	public boolean armedOn(int tick)
+	{
+		return remaining > 0 && armTick == tick;
+	}
+
 	public int reserved(@Nullable Integer npcIndex)
 	{
 		if (remaining <= 0 || !Objects.equals(this.npcIndex, npcIndex))

@@ -1463,6 +1463,25 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void blowpipeSpecHitStaysOnTheSpecSwing()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+		log.noteAttack(3, 4, "Gemstone Crab", 12926, 2);
+		log.markSpecSwing(3, 4);
+		log.add(new HitRecord(3 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 10, HitKind.HIT, null, 3, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(5 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 27, HitKind.HIT, null, 5, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals(27, rows.get(0).getTotal());
+		assertTrue(rows.get(0).isSpecial());
+		assertEquals(10, rows.get(1).getTotal());
+		assertFalse(rows.get(1).isSpecial());
+	}
+
+	@Test
 	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
 	{
 		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.
