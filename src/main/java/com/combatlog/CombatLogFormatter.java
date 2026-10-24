@@ -73,7 +73,26 @@ public final class CombatLogFormatter
 		}
 		if (isPunish(row))
 		{
-			return row.getTotal() + " (Punish!)";
+			StringBuilder parts = new StringBuilder();
+			int shown = 0;
+			for (HitRecord hit : row.getHits())
+			{
+				if (hit.getAmount() <= 0)
+				{
+					continue;
+				}
+				if (shown > 0)
+				{
+					parts.append('+');
+				}
+				parts.append(hit.getAmount());
+				shown++;
+			}
+			if (shown >= 2)
+			{
+				return "(Punish) (" + parts + ") " + row.getTotal();
+			}
+			return "(Punish) " + row.getTotal();
 		}
 		String hits = specHits(row);
 		if (hits != null)
@@ -172,7 +191,7 @@ public final class CombatLogFormatter
 		}
 		if (hit.getSource() == DamageSource.PUNISH)
 		{
-			text += " (Punish!)";
+			return "(Punish) " + text;
 		}
 		if (hit.getOverkill() > 0)
 		{
@@ -200,7 +219,7 @@ public final class CombatLogFormatter
 		}
 		if (hit.getSource() == DamageSource.PUNISH)
 		{
-			return "Punish!";
+			return hit.getDirection() == DamageDirection.INCOMING ? "Taken" : "Dealt";
 		}
 		if (row.isSpecial())
 		{
@@ -371,7 +390,7 @@ public final class CombatLogFormatter
 		}
 		if (hit.getSource() == DamageSource.PUNISH)
 		{
-			return "Punish!";
+			return "Punish";
 		}
 		return "Hit";
 	}

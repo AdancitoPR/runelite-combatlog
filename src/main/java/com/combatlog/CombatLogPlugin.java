@@ -128,6 +128,8 @@ public class CombatLogPlugin extends Plugin
 	private boolean doomDied;
 	private int meleePunishBonus;
 	private int meleePunishUntil = -1;
+	/** Ticks after the interrupting melee hit, when the bonus splats can land. */
+	private int meleePunishLandUntil = -1;
 	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
@@ -234,6 +236,9 @@ public class CombatLogPlugin extends Plugin
 		opponentIndex = null;
 		opponentName = null;
 		opponentNpcId = null;
+		meleePunishBonus = 0;
+		meleePunishUntil = -1;
+		meleePunishLandUntil = -1;
 	}
 
 	private void loadSidebarIcon()
@@ -385,6 +390,10 @@ public class CombatLogPlugin extends Plugin
 			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
+			if (target instanceof NPC && index != null && meleePunishUntil >= tick && DoomDelve.surface(npcId((NPC) target)))
+			{
+				armPunishLanding(tick, index);
+			}
 			if (specMarker.armedOn(tick))
 			{
 				combatLog.markSpecSwing(tick, index);
@@ -590,9 +599,16 @@ public class CombatLogPlugin extends Plugin
 		{
 			return;
 		}
+		boolean unattributed = false;
 		HitRecord record = status != null
 			? HitCapture.captureStatus(type, amount, actor.getName(), targetKind, npcId, npcIndex, System.currentTimeMillis(), tick)
 			: HitCapture.capture(captureType, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks() || splash, config.recordPlayerHits(), System.currentTimeMillis());
+		if (record == null && status == null && amount > 0 && meleePunishBonus > 0 && amount == meleePunishBonus
+			&& meleePunishLandUntil >= tick && npcId != null && npcId == NpcID.DOM_BOSS && HitStyle.othersDamage(type))
+		{
+			record = HitCapture.capture(HitsplatID.DAMAGE_ME, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, true, true, System.currentTimeMillis());
+			unattributed = record != null;
+		}
 		if (record != null && splash)
 		{
 			record = record.asSplash();
@@ -606,7 +622,7 @@ public class CombatLogPlugin extends Plugin
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
 		record = record.withMeta(tick, null, null, weapon, false, status != null ? status : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
+		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial(), unattributed));
 		lastHitTick = tick;
 	}
 
@@ -1160,14 +1176,34 @@ public class CombatLogPlugin extends Plugin
 			int until = tick + DoomPunish.LAND_TICKS;
 			meleePunishBonus = bonus;
 			meleePunishUntil = until;
+			meleePunishLandUntil = until;
 			combatLog.notePunish(index, Math.max(0, tick - DoomPunish.CHARGE_TICKS), until, bonus);
 		}
 		else if (DoomPunish.fired(animation))
 		{
 			meleePunishBonus = 0;
 			meleePunishUntil = -1;
+			meleePunishLandUntil = -1;
 			combatLog.clearPunish();
 		}
+	}
+
+	/**
+	 * The interrupting swing is in melee gear, which may have just been switched
+	 * to. The bonus splats land on that swing and the next few ticks.
+	 */
+	private void armPunishLanding(int tick, int npcIndex)
+	{
+		int bonus = DoomPunish.bonus(strengthBonus());
+		if (bonus <= 0)
+		{
+			return;
+		}
+		int until = tick + DoomPunish.LAND_TICKS;
+		meleePunishBonus = bonus;
+		meleePunishUntil = Math.max(meleePunishUntil, until);
+		meleePunishLandUntil = Math.max(meleePunishLandUntil, until);
+		combatLog.notePunish(npcIndex, Math.max(0, tick - DoomPunish.CHARGE_TICKS), meleePunishUntil, bonus);
 	}
 
 	/** Gear strength bonus. Prayers are not part of the punish formula. */
@@ -1551,6 +1587,7 @@ public class CombatLogPlugin extends Plugin
 	 */
 	private List<PendingHit> withoutForeignHits(List<PendingHit> hits)
 	{
+		hits = claimPunish(hits);
 		if (!styleXpKnown || hits.isEmpty())
 		{
 			return hits;
@@ -1569,10 +1606,11 @@ public class CombatLogPlugin extends Plugin
 		}
 		boolean crab = false;
 		int[] amounts = new int[hits.size()];
+		boolean[] punishable = new boolean[hits.size()];
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn || hit.record.getSource().isStatus())
+			if (hit.punish || hit.burn || hit.record.getSource().isStatus())
 			{
 				amounts[i] = -1;
 				continue;
@@ -1583,8 +1621,22 @@ public class CombatLogPlugin extends Plugin
 			{
 				crab = true;
 			}
+			// Only the unshielded boss. Grub explosions hit the shielded form and are not the punish.
+			punishable[i] = meleePunishLandUntil >= tick && npcId != null && npcId == NpcID.DOM_BOSS;
 		}
 		boolean[] keep = OwnHits.keep(amounts, styleXp, crab, magicXp > 0 && magicXp == styleXp);
+		if (keep != null)
+		{
+			boolean[] before = keep.clone();
+			PunishHits.restore(keep, amounts, meleePunishBonus, punishable);
+			for (int i = 0; i < hits.size(); i++)
+			{
+				if (keep[i] && !before[i])
+				{
+					hits.get(i).markPunish();
+				}
+			}
+		}
 		if (keep == null)
 		{
 			return hits;
@@ -1596,6 +1648,35 @@ public class CombatLogPlugin extends Plugin
 			{
 				kept.add(hits.get(i));
 			}
+		}
+		return kept;
+	}
+
+	/**
+	 * A bonus splat is not marked as yours. Keep it only when it matches the
+	 * strength bonus on the unshielded boss. Grub explosions are left out.
+	 */
+	private List<PendingHit> claimPunish(List<PendingHit> hits)
+	{
+		int room = Math.max(1, playerAttackSplats);
+		int taken = 0;
+		List<PendingHit> kept = new ArrayList<>();
+		for (PendingHit hit : hits)
+		{
+			if (!hit.unattributed)
+			{
+				kept.add(hit);
+				continue;
+			}
+			if (meleePunishBonus <= 0 || hit.record.getAmount() != meleePunishBonus
+				|| hit.record.getNpcId() == null || hit.record.getNpcId() != NpcID.DOM_BOSS
+				|| meleePunishLandUntil < hit.tick || taken >= room)
+			{
+				continue;
+			}
+			hit.markPunish();
+			taken++;
+			kept.add(hit);
 		}
 		return kept;
 	}
@@ -1642,7 +1723,7 @@ public class CombatLogPlugin extends Plugin
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn || hit.record.getSource().isStatus() || i == vengeanceAt)
+			if (hit.punish || hit.burn || hit.record.getSource().isStatus() || i == vengeanceAt)
 			{
 				continue;
 			}
@@ -1686,6 +1767,10 @@ public class CombatLogPlugin extends Plugin
 	 */
 	private boolean deferPunish(PendingHit hit)
 	{
+		if (hit.punish)
+		{
+			return true;
+		}
 		return meleePunishBonus > 0
 			&& meleePunishUntil >= hit.tick
 			&& hit.record.getAmount() == meleePunishBonus
@@ -1696,24 +1781,30 @@ public class CombatLogPlugin extends Plugin
 	private void storeHit(PendingHit hit, int i, int vengeanceAt, int thrallAt)
 	{
 		DamageSource recorded = hit.record.getSource();
-		DamageSource source = hit.burn || recorded.isStatus()
-			? recorded
-			: i == vengeanceAt
-				? DamageSource.VENGEANCE
-				: i == thrallAt
-					? DamageSource.THRALL
-					: DamageSource.WEAPON;
+		DamageSource source = hit.punish
+			? DamageSource.PUNISH
+			: hit.burn || recorded.isStatus()
+				? recorded
+				: i == vengeanceAt
+					? DamageSource.VENGEANCE
+					: i == thrallAt
+						? DamageSource.THRALL
+						: DamageSource.WEAPON;
 		// The spec flag follows the swing that spent the energy. Claiming the
 		// first hitsplat after the energy drop tagged the dart that was
 		// already in the air, and the real blowpipe spec landed as a normal hit.
 		boolean special = false;
-		Integer weapon = source == DamageSource.THRALL || source.isStatus()
+		Integer weapon = source == DamageSource.THRALL || source == DamageSource.PUNISH || source.isStatus()
 			? null
 			: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
 		HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
 		if (source.isStatus())
 		{
 			record = record.asSource(source, null, null);
+		}
+		if (source == DamageSource.PUNISH)
+		{
+			record = record.withWeapon(null).withPrayer(null);
 		}
 		if (source == DamageSource.WEAPON)
 		{
@@ -1824,8 +1915,10 @@ public class CombatLogPlugin extends Plugin
 		private final Integer weapon;
 		private final boolean killed;
 		private final int specSerial;
+		private final boolean unattributed;
+		private boolean punish;
 
-		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial)
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial, boolean unattributed)
 		{
 			this.tick = tick;
 			this.record = record;
@@ -1836,6 +1929,12 @@ public class CombatLogPlugin extends Plugin
 			this.weapon = weapon;
 			this.killed = killed;
 			this.specSerial = specSerial;
+			this.unattributed = unattributed;
+		}
+
+		private void markPunish()
+		{
+			punish = true;
 		}
 	}
 

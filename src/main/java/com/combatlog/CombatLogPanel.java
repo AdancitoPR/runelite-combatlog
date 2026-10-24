@@ -3,6 +3,7 @@ package com.combatlog;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -11,6 +12,8 @@ import java.awt.GridLayout;
 import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
@@ -1015,7 +1018,8 @@ class CombatLogPanel extends PluginPanel
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
-		boolean special = attack.isSpecial();
+		boolean punish = hit.getSource() == DamageSource.PUNISH;
+		boolean special = attack.isSpecial() && !punish;
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
 		row.setBorder(new EmptyBorder(3, 6, 3, 6));
@@ -1031,7 +1035,7 @@ class CombatLogPanel extends PluginPanel
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!status && (thrall || hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
+		if (!status && !punish && (thrall || hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
 		{
 			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
@@ -1062,12 +1066,13 @@ class CombatLogPanel extends PluginPanel
 	private JComponent amountFigure(AttackRow attack, HitRecord hit)
 	{
 		BufferedImage splat = hitSplat(attack);
-		if (splat == null || CombatLogFormatter.specHits(attack) != null)
+		if (splat == null || CombatLogFormatter.specHits(attack) != null || hit.getSource() == DamageSource.PUNISH)
 		{
 			JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
 			amount.setFont(uiFont());
-			amount.setForeground(attack.isSpecial() ? DamageColors.SPEC : DamageColors.forHit(hit));
+			amount.setForeground(attack.isSpecial() && hit.getSource() != DamageSource.PUNISH ? DamageColors.SPEC : DamageColors.forHit(hit));
 			holdWidth(amount);
+			tipWhenClipped(amount, CombatLogFormatter.rowAmount(attack));
 			return amount;
 		}
 		JLabel icon = new JLabel(new ImageIcon(splat), SwingConstants.RIGHT);
@@ -1411,6 +1416,53 @@ class CombatLogPanel extends PluginPanel
 		Dimension size = label.getPreferredSize();
 		label.setMinimumSize(size);
 		label.setPreferredSize(size);
+	}
+
+	/**
+	 * A long spec total is clipped by the sidebar. Hovering the number shows the full text.
+	 */
+	private static void tipWhenClipped(JLabel label, String full)
+	{
+		label.addComponentListener(new ComponentAdapter()
+		{
+			@Override
+			public void componentResized(ComponentEvent event)
+			{
+				refreshAmountTip(label, full);
+			}
+		});
+		label.addHierarchyListener(event ->
+		{
+			if (label.isShowing())
+			{
+				SwingUtilities.invokeLater(() -> refreshAmountTip(label, full));
+			}
+		});
+	}
+
+	private static void refreshAmountTip(JLabel label, String full)
+	{
+		label.setToolTipText(amountClipped(label) ? full : null);
+	}
+
+	private static boolean amountClipped(JLabel label)
+	{
+		int needed = label.getPreferredSize().width;
+		if (label.getWidth() > 0 && label.getWidth() < needed)
+		{
+			return true;
+		}
+		Container viewport = label.getParent();
+		while (viewport != null && !(viewport instanceof JViewport))
+		{
+			viewport = viewport.getParent();
+		}
+		if (viewport == null || viewport.getWidth() <= 0 || !label.isShowing())
+		{
+			return false;
+		}
+		int x = SwingUtilities.convertPoint(label, 0, 0, viewport).x;
+		return x < 0 || x + needed > viewport.getWidth();
 	}
 
 	private static void fitRow(JPanel row)

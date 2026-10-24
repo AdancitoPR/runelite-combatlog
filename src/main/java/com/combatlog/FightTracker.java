@@ -55,7 +55,7 @@ final class FightTracker
 		boolean special = hit.isSpecial();
 		if (attackId == null && isPunish(fight, hit))
 		{
-			hit = hit.asSource(DamageSource.PUNISH, hit.getWeaponItemId(), hit.getSourceNpcId());
+			hit = hit.asSource(DamageSource.PUNISH, null, hit.getSourceNpcId());
 			special = false;
 		}
 		if (attackId == null)
