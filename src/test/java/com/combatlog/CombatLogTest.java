@@ -821,6 +821,30 @@ public class CombatLogTest
 		assertEquals(777, oneDelve.get(0).damageDone());
 		assertEquals("Doom of Mokhaiotl", oneDelve.get(0).getName());
 
+		CombatLog pieces = new CombatLog(10);
+		pieces.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 308));
+		pieces.noteDelve(4, 5);
+		pieces.finishDoomSurface(40, true);
+		pieces.add(npcHit(500, "Doom of Mokhaiotl", 8, NpcID.DOM_BOSS, 401));
+		pieces.noteDelve(8, 5);
+		pieces.finishDoomSurface(600, true);
+		pieces.add(npcHit(2000, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 127));
+		pieces.noteDelve(12, 5);
+		List<Fight> onePiece = pieces.summarize(2_000_000L, 10).getFights();
+		assertEquals(1, onePiece.size());
+		assertEquals(Integer.valueOf(5), onePiece.get(0).getDelve());
+		assertEquals(836, onePiece.get(0).damageDone());
+
+		pieces.add(npcHit(2100, "Doom of Mokhaiotl", 20, NpcID.DOM_BOSS, 20));
+		pieces.noteDelve(20, 1);
+		pieces.add(npcHit(2200, "Doom of Mokhaiotl", 21, NpcID.DOM_BOSS, 40));
+		pieces.noteDelve(21, 5);
+		List<Fight> nextRun = pieces.summarize(2_200_000L, 10).getFights();
+		assertEquals(3, nextRun.size());
+		assertEquals(40, nextRun.get(0).damageDone());
+		assertEquals(Integer.valueOf(5), nextRun.get(0).getDelve());
+		assertEquals(836, nextRun.get(2).damageDone());
+
 		CombatLog wipe = new CombatLog(10);
 		wipe.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
 		wipe.noteDelve(4, 6);

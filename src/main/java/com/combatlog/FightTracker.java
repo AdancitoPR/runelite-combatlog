@@ -19,11 +19,6 @@ import javax.annotation.Nullable;
 final class FightTracker
 {
 	private static final int WEAPON_WINDOW = 8;
-	/**
-	 * A killed delve can still be the same attempt when the next form arrives.
-	 * A later raid is much further out than this, so it stays its own log.
-	 */
-	private static final int CONTINUATION_TICKS = 200;
 
 	private final List<Fight> fights = new ArrayList<>();
 	private final Map<String, Fight> open = new HashMap<>();
@@ -269,6 +264,7 @@ final class FightTracker
 		if (first && doomMonster(fight))
 		{
 			finishLowerSurfaces(level, fight);
+			sealOtherDelves(level);
 		}
 		fight.setDelve(level);
 		if (!doomMonster(fight) || fight.getDelve() == null || fight.getDelve() != level)
@@ -306,11 +302,15 @@ final class FightTracker
 		{
 			return;
 		}
-		// A closed log stays closed until foldDelve pulls a same-attempt form
-		// back onto it. Reopening here also swallowed a wipe's retry.
+		// A wipe is sealed and stays its own log. A phase that only looked
+		// finished still belongs to this delve.
 		if (fight.isClosed())
 		{
-			return;
+			if (fight.isSealed() || !DoomDelve.burrowJoins(level))
+			{
+				return;
+			}
+			fight.reopen();
 		}
 		if (fight.getDelve() == null || fight.getDelve() == level)
 		{
@@ -380,12 +380,31 @@ final class FightTracker
 
 	private void finishLowerSurfaces(int level, Fight current)
 	{
-		List<Fight> earlier = new ArrayList<>();
-		for (Map.Entry<Integer, Fight> entry : surfaceByLevel.entrySet())
+		for (int lower = 1; lower < level; lower++)
 		{
-			if (entry.getKey() < level && entry.getValue() != current && !entry.getValue().isClosed())
+			if (DoomDelve.burrowJoins(lower))
 			{
-				earlier.add(entry.getValue());
+				foldDelve(lower);
+			}
+		}
+		List<Fight> earlier = new ArrayList<>();
+		for (Fight fight : new ArrayList<>(fights))
+		{
+			if (fight == current || fight.getDelve() == null || fight.getDelve() >= level || !doomMonster(fight))
+			{
+				continue;
+			}
+			if (!DoomDelve.burrowJoins(fight.getDelve()))
+			{
+				if (!fight.isClosed() && surfaceByLevel.get(fight.getDelve()) == fight)
+				{
+					earlier.add(fight);
+				}
+				continue;
+			}
+			if (!fight.isClosed())
+			{
+				earlier.add(fight);
 			}
 		}
 		for (Fight previous : earlier)
@@ -393,6 +412,35 @@ final class FightTracker
 			previous.closeKilled(previous.lastTick());
 			String key = previous.getNpcIndex() == null ? null : npcKey(previous.getNpcIndex());
 			detach(previous, key);
+		}
+	}
+
+	/**
+	 * Starting a new run at delve 1 ends any deeper log still on the list.
+	 * A deeper closed log is sealed so the next visit does not extend it.
+	 */
+	private void sealOtherDelves(int level)
+	{
+		if (level != 1)
+		{
+			return;
+		}
+		for (Fight fight : new ArrayList<>(fights))
+		{
+			if (fight.getDelve() == null || fight.getDelve() <= level || !doomMonster(fight) || fight.isSealed())
+			{
+				continue;
+			}
+			if (!fight.isClosed())
+			{
+				fight.closeQuiet(fight.lastTick());
+				String key = fight.getNpcIndex() == null ? null : npcKey(fight.getNpcIndex());
+				detach(fight, key);
+			}
+			else
+			{
+				fight.seal();
+			}
 		}
 	}
 
@@ -448,9 +496,9 @@ final class FightTracker
 	}
 
 	/**
-	 * One log for each delve from 5 up. A second form, including one that
-	 * arrived after the log had already been closed, is the same attempt when
-	 * it follows that kill. A quiet wipe stays a separate entry.
+	 * One log for each delve from 5 up. Pieces of an attempt that is still
+	 * open fold together no matter how long Doom was gone. A sealed wipe or
+	 * a delve already left behind stays its own entry.
 	 */
 	boolean foldDoomLevels()
 	{
@@ -473,14 +521,14 @@ final class FightTracker
 
 	private boolean foldDelve(int level)
 	{
-		if (!DoomDelve.burrowJoins(level) || higherDelve(level))
+		if (!DoomDelve.burrowJoins(level))
 		{
 			return false;
 		}
 		List<Fight> same = new ArrayList<>();
 		for (Fight candidate : new ArrayList<>(fights))
 		{
-			if (candidate.getDelve() != null && candidate.getDelve() == level && doomMonster(candidate))
+			if (candidate.getDelve() != null && candidate.getDelve() == level && doomMonster(candidate) && !candidate.isSealed())
 			{
 				same.add(candidate);
 			}
@@ -494,11 +542,6 @@ final class FightTracker
 		for (int i = 1; i < same.size(); i++)
 		{
 			Fight extra = same.get(i);
-			if (!sameAttempt(keeper, extra))
-			{
-				keeper = extra;
-				continue;
-			}
 			changed = true;
 			if (extra.getStartTick() - keeper.lastTick() > 8)
 			{
@@ -514,38 +557,11 @@ final class FightTracker
 			}
 			dropFight(extra);
 		}
-		if (changed && !keeper.isClosed())
+		if (!keeper.isClosed())
 		{
 			surfaceByLevel.put(level, keeper);
 		}
 		return changed;
-	}
-
-	/** A later raid, or a retry after a wipe, is not the same attempt. */
-	private boolean sameAttempt(Fight earlier, Fight later)
-	{
-		int gap = later.getStartTick() - Math.max(earlier.lastTick(), earlier.getEndTick());
-		if (gap < 0)
-		{
-			return true;
-		}
-		if (earlier.isClosed() && !earlier.isKilled())
-		{
-			return false;
-		}
-		return gap <= CONTINUATION_TICKS;
-	}
-
-	private boolean higherDelve(int level)
-	{
-		for (Fight fight : fights)
-		{
-			if (fight.getDelve() != null && fight.getDelve() > level && doomMonster(fight))
-			{
-				return true;
-			}
-		}
-		return false;
 	}
 
 	private void dropFight(Fight fight)

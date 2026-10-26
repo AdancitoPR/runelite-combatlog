@@ -21,6 +21,8 @@ public final class Fight
 	private int endTick;
 	private boolean closed;
 	private boolean killed;
+	/** A finished attempt. Later hits at this delve start a new log. */
+	private boolean sealed;
 	private Integer maxHp;
 	/** Head item id for a player. 0 means nothing is worn there. Null for an NPC. */
 	@Nullable
@@ -122,6 +124,17 @@ public final class Fight
 	public boolean isKilled()
 	{
 		return killed;
+	}
+
+	boolean isSealed()
+	{
+		return sealed;
+	}
+
+	/** This attempt is over. A later visit to the same delve is a new log. */
+	void seal()
+	{
+		sealed = true;
 	}
 
 	public boolean hasTickTiming()
@@ -235,6 +248,7 @@ public final class Fight
 		copy.endTick = endTick;
 		copy.closed = closed;
 		copy.killed = killed;
+		copy.sealed = sealed;
 		copy.maxHp = maxHp;
 		copy.headItemId = headItemId;
 		copy.headItemName = headItemName;
@@ -328,6 +342,7 @@ public final class Fight
 	{
 		closed = true;
 		killed = false;
+		sealed = true;
 		endTick = tick;
 	}
 
