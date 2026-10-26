@@ -7,9 +7,17 @@ import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.font.FontRenderContext;
+import java.awt.font.GlyphVector;
+import java.awt.font.LineMetrics;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ComponentAdapter;
@@ -359,15 +367,12 @@ class CombatLogPanel extends PluginPanel
 		JPanel row = new JPanel(new BorderLayout(8, 0));
 		row.setOpaque(false);
 		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
 		JLabel name = new JLabel(label);
 		name.setFont(uiFont());
 		name.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		JLabel amount = new JLabel(value, SwingConstants.RIGHT);
-		amount.setFont(boldFont(18f));
-		amount.setForeground(color);
 		row.add(name, BorderLayout.WEST);
-		row.add(amount, BorderLayout.EAST);
+		row.add(new TightAmount(value, boldFont(18f), color), BorderLayout.EAST);
+		fitRow(row);
 		totalsBox.add(row);
 	}
 
@@ -1470,6 +1475,77 @@ class CombatLogPanel extends PluginPanel
 	{
 		int height = row.getPreferredSize().height;
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+	}
+
+	/**
+	 * The bold font leaves a wide gap before 2, so 162 and 362 paint as "16 2" and "36 2".
+	 * Later glyphs are pulled left until the ink gap matches the other digits.
+	 */
+	static final class TightAmount extends JComponent
+	{
+		private static final float DIGIT_GAP = 2.25f;
+		private static final FontRenderContext RENDER = new FontRenderContext(null, true, true);
+
+		private final String text;
+		private final Font amountFont;
+
+		TightAmount(String text, Font font, Color color)
+		{
+			this.text = text == null ? "" : text;
+			this.amountFont = font;
+			setFont(font);
+			setForeground(color);
+			setOpaque(false);
+			GlyphVector glyphs = layout(RENDER);
+			Rectangle2D ink = glyphs.getVisualBounds();
+			LineMetrics metrics = font.getLineMetrics(this.text.isEmpty() ? "0" : this.text, RENDER);
+			int width = Math.max(1, (int) Math.ceil(ink.getWidth()) + 1);
+			int height = Math.max(1, (int) Math.ceil(metrics.getAscent() + metrics.getDescent()));
+			Dimension size = new Dimension(width, height);
+			setPreferredSize(size);
+			setMinimumSize(size);
+			setMaximumSize(size);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g = (Graphics2D) graphics.create();
+			g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+			g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+			g.setFont(amountFont);
+			g.setColor(getForeground());
+			GlyphVector glyphs = layout(g.getFontRenderContext());
+			Rectangle2D ink = glyphs.getVisualBounds();
+			FontMetrics metrics = g.getFontMetrics(amountFont);
+			g.drawGlyphVector(glyphs, (float) -ink.getX(), metrics.getAscent());
+			g.dispose();
+		}
+
+		private GlyphVector layout(FontRenderContext context)
+		{
+			GlyphVector glyphs = amountFont.createGlyphVector(context, text);
+			float shift = 0f;
+			float previousEnd = Float.NaN;
+			for (int i = 0; i < glyphs.getNumGlyphs(); i++)
+			{
+				Point2D position = glyphs.getGlyphPosition(i);
+				glyphs.setGlyphPosition(i, new Point2D.Float((float) position.getX() + shift, (float) position.getY()));
+				Rectangle2D visual = glyphs.getGlyphVisualBounds(i).getBounds2D();
+				if (!Float.isNaN(previousEnd))
+				{
+					float gap = (float) visual.getX() - previousEnd;
+					if (gap > DIGIT_GAP)
+					{
+						shift -= gap - DIGIT_GAP;
+						glyphs.setGlyphPosition(i, new Point2D.Float((float) position.getX() + shift, (float) position.getY()));
+						visual = glyphs.getGlyphVisualBounds(i).getBounds2D();
+					}
+				}
+				previousEnd = (float) (visual.getX() + visual.getWidth());
+			}
+			return glyphs;
+		}
 	}
 
 	private static void styleButton(JButton button)

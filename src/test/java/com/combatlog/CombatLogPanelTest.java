@@ -4,11 +4,13 @@ import com.formdev.flatlaf.FlatClientProperties;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.io.InputStream;
 import java.lang.reflect.Proxy;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -24,6 +26,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
 import net.runelite.api.gameval.SpriteID;
 import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.laf.RuneLiteLAF;
 import net.runelite.client.ui.laf.RuneLiteScrollBarUI;
@@ -640,6 +643,90 @@ public class CombatLogPanelTest
 				}
 				return null;
 			});
+	}
+
+	@Test
+	public void bothTotalsKeepTheLastDigitWithTheRest() throws Exception
+	{
+		Font font;
+		try (InputStream in = FontManager.class.getResourceAsStream("runescape_bold.ttf"))
+		{
+			assertNotNull(in);
+			font = Font.createFont(Font.TRUETYPE_FONT, in).deriveFont(Font.BOLD, 18f);
+		}
+		assertTrue(widestInkGap(paintAmount("162", font)) <= 3);
+		assertTrue(widestInkGap(paintAmount("362", font)) <= 3);
+		assertEquals(5, inkRuns(paintAmount("2,376", font)));
+	}
+
+	private static BufferedImage paintAmount(String text, Font font)
+	{
+		CombatLogPanel.TightAmount amount = new CombatLogPanel.TightAmount(text, font, Color.WHITE);
+		Dimension size = amount.getPreferredSize();
+		BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = image.createGraphics();
+		amount.setSize(size);
+		amount.paint(graphics);
+		graphics.dispose();
+		return image;
+	}
+
+	private static int widestInkGap(BufferedImage image)
+	{
+		boolean[] ink = inkColumns(image);
+		int worst = 0;
+		int gap = 0;
+		boolean seen = false;
+		for (boolean column : ink)
+		{
+			if (column)
+			{
+				if (seen)
+				{
+					worst = Math.max(worst, gap);
+				}
+				seen = true;
+				gap = 0;
+			}
+			else if (seen)
+			{
+				gap++;
+			}
+		}
+		return worst;
+	}
+
+	private static int inkRuns(BufferedImage image)
+	{
+		boolean[] ink = inkColumns(image);
+		int runs = 0;
+		boolean on = false;
+		for (boolean column : ink)
+		{
+			if (column && !on)
+			{
+				runs++;
+			}
+			on = column;
+		}
+		return runs;
+	}
+
+	private static boolean[] inkColumns(BufferedImage image)
+	{
+		boolean[] ink = new boolean[image.getWidth()];
+		for (int x = 0; x < image.getWidth(); x++)
+		{
+			for (int y = 0; y < image.getHeight(); y++)
+			{
+				if (((image.getRGB(x, y) >>> 24) & 0xff) > 40)
+				{
+					ink[x] = true;
+					break;
+				}
+			}
+		}
+		return ink;
 	}
 
 	private static boolean isDark(int rgb)
