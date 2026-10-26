@@ -59,7 +59,7 @@ public final class HitRecord
 	public HitRecord(long timeMillis, String targetName, TargetKind targetKind, @Nullable Integer npcId, @Nullable Integer npcIndex, @Nullable Integer weaponItemId, int amount, HitKind kind, @Nullable String tint, int tick, DamageDirection direction, DamageSource source, boolean special, int overkill, @Nullable Long attackId, @Nullable Long fightId, int sequence, @Nullable Integer sourceNpcId, @Nullable CombatStyle combatStyle, @Nullable Integer prayerIcon, @Nullable Integer attackStyleIcon)
 	{
 		this.timeMillis = timeMillis;
-		this.targetName = targetName;
+		this.targetName = Names.plain(targetName);
 		this.targetKind = targetKind;
 		this.npcId = targetKind == TargetKind.NPC ? npcId : null;
 		this.npcIndex = targetKind == TargetKind.NPC ? npcIndex : null;

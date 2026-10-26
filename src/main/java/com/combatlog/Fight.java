@@ -21,6 +21,8 @@ public final class Fight
 	private int endTick;
 	private boolean closed;
 	private boolean killed;
+	/** A finished attempt. Later hits at this delve start a new log. */
+	private boolean sealed;
 	private Integer maxHp;
 	/** Head item id for a player. 0 means nothing is worn there. Null for an NPC. */
 	@Nullable
@@ -35,7 +37,8 @@ public final class Fight
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
 		this.id = id;
-		this.name = name;
+		String plain = Names.plain(name);
+		this.name = DoomDelve.displayName(plain, npcId);
 		this.kind = kind;
 		this.npcId = npcId;
 		this.npcIndex = npcIndex;
@@ -121,6 +124,17 @@ public final class Fight
 	public boolean isKilled()
 	{
 		return killed;
+	}
+
+	boolean isSealed()
+	{
+		return sealed;
+	}
+
+	/** This attempt is over. A later visit to the same delve is a new log. */
+	void seal()
+	{
+		sealed = true;
 	}
 
 	public boolean hasTickTiming()
@@ -234,6 +248,7 @@ public final class Fight
 		copy.endTick = endTick;
 		copy.closed = closed;
 		copy.killed = killed;
+		copy.sealed = sealed;
 		copy.maxHp = maxHp;
 		copy.headItemId = headItemId;
 		copy.headItemName = headItemName;
@@ -253,6 +268,18 @@ public final class Fight
 		attacks.sort(Comparator.comparingInt(AttackSwing::getTick));
 	}
 
+	void markSpec(int tick, @Nullable Integer npcIndex)
+	{
+		for (int i = 0; i < attacks.size(); i++)
+		{
+			AttackSwing swing = attacks.get(i);
+			if (swing.getTick() == tick && (npcIndex == null ? swing.getNpcIndex() == null : npcIndex.equals(swing.getNpcIndex())))
+			{
+				attacks.set(i, swing.withSpec());
+			}
+		}
+	}
+
 	void replaceWeapon(int tick, @Nullable Integer npcIndex, int weaponItemId, int speed)
 	{
 		for (int i = 0; i < attacks.size(); i++)
@@ -270,6 +297,37 @@ public final class Fight
 		}
 	}
 
+	void reopen()
+	{
+		closed = false;
+		killed = false;
+	}
+
+	/** Pulls another form of this same delve onto this fight. */
+	void takeFrom(Fight other)
+	{
+		reopen();
+		if (other.startTick > 0 && (startTick == 0 || other.startTick < startTick))
+		{
+			startTick = other.startTick;
+		}
+		for (HitRecord hit : other.hits)
+		{
+			addHit(hit.withMeta(hit.getTick(), id, hit.getAttackId(), hit.getWeaponItemId(), hit.isSpecial(), hit.getSource(), hit.getOverkill(), hit.getSequence()));
+		}
+		for (AttackSwing swing : other.attacks)
+		{
+			addAttack(swing);
+		}
+		for (Integer tick : other.phaseBreaks)
+		{
+			if (!phaseBreaks.contains(tick))
+			{
+				phaseBreaks.add(tick);
+			}
+		}
+	}
+
 	void closeKilled(int tick)
 	{
 		closed = true;
@@ -284,6 +342,7 @@ public final class Fight
 	{
 		closed = true;
 		killed = false;
+		sealed = true;
 		endTick = tick;
 	}
 

@@ -92,6 +92,7 @@ class MonsterIcons
 
 	BufferedImage get(int npcId)
 	{
+		npcId = CombatDummy.iconId(npcId);
 		BufferedImage icon = icons.get(npcId);
 		if (icon != null || !enabled || missing.contains(npcId))
 		{
@@ -118,7 +119,7 @@ class MonsterIcons
 
 	static HttpUrl iconUrl(int npcId)
 	{
-		return HttpUrl.get(String.format(ICON_URL, npcId));
+		return HttpUrl.get(String.format(ICON_URL, CombatDummy.iconId(npcId)));
 	}
 
 	private void requestIcon(int npcId)

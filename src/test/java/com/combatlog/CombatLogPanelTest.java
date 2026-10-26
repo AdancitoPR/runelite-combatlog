@@ -4,10 +4,13 @@ import com.formdev.flatlaf.FlatClientProperties;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.io.InputStream;
 import java.lang.reflect.Proxy;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -16,12 +19,14 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.JTextArea;
 import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
 import net.runelite.api.gameval.SpriteID;
 import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.laf.RuneLiteLAF;
 import net.runelite.client.ui.laf.RuneLiteScrollBarUI;
@@ -105,6 +110,69 @@ public class CombatLogPanelTest
 			{
 				frame.dispose();
 			}
+		});
+	}
+
+	@Test
+	public void emptyStateTextStaysInsideTheSidebar() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLogPanel panel = new CombatLogPanel(new CombatLog(10), config(), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+			JLabel empty = findLabelContaining(panel, "No hits yet");
+			assertNotNull(empty);
+			assertTrue(empty.getText().contains("in red"));
+			assertTrue(empty.getText().contains("including poison, venom, burn, and bleed"));
+			assertTrue(empty.getText().contains("Other players' hits stay off this log"));
+			int room = PluginPanel.PANEL_WIDTH - (PluginPanel.BORDER_OFFSET + 8) * 2;
+			assertTrue("empty text preferred " + empty.getPreferredSize().width + " exceeds the sidebar room " + room,
+				empty.getPreferredSize().width <= room);
+
+			JFrame frame = new JFrame();
+			try
+			{
+				frame.getContentPane().add(panel.getWrappedPanel());
+				frame.getContentPane().setPreferredSize(new Dimension(PluginPanel.PANEL_WIDTH + PluginPanel.SCROLLBAR_WIDTH, 480));
+				frame.pack();
+				frame.setVisible(true);
+				JScrollPane scroll = scrollPane(panel);
+				scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+				frame.validate();
+
+				Point origin = SwingUtilities.convertPoint(empty, 0, 0, scroll.getViewport());
+				assertTrue("laid out " + empty.getWidth() + " preferred " + empty.getPreferredSize().width,
+					empty.getWidth() >= empty.getPreferredSize().width);
+				int right = origin.x + empty.getWidth();
+				assertTrue("empty text ends at " + right + " past the viewport " + scroll.getViewport().getWidth(),
+					right <= scroll.getViewport().getWidth());
+			}
+			finally
+			{
+				frame.dispose();
+			}
+		});
+	}
+
+	@Test
+	public void collapsedFightFooterStaysInsideTheSidebar() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			CombatLog log = new CombatLog(10);
+			log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+			log.add(new HitRecord(600L, "Gemstone Crab", TargetKind.NPC, 14779, 4, 12926, 10, HitKind.HIT, null, 1, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+			log.noteAttack(8, 4, "Gemstone Crab", 12926, 2);
+			CombatLogPanel panel = new CombatLogPanel(log, config(0), new MonsterIcons(), new WeaponIcons(null));
+			panel.refresh();
+
+			JLabel footer = findLabelContaining(panel, "Lost");
+			assertNotNull(footer);
+			assertTrue(footer.getText().contains("ticks"));
+			assertFalse(footer.getText().contains("nowrap"));
+			int room = PluginPanel.PANEL_WIDTH - (PluginPanel.BORDER_OFFSET + 8) * 2;
+			assertTrue("footer preferred " + footer.getPreferredSize().width + " exceeds the sidebar room " + room,
+				footer.getPreferredSize().width <= room);
 		});
 	}
 
@@ -502,6 +570,28 @@ public class CombatLogPanelTest
 		return count;
 	}
 
+	private static JLabel findLabelContaining(Component component, String text)
+	{
+		if (component instanceof JLabel && ((JLabel) component).getText() != null
+			&& ((JLabel) component).getText().contains(text))
+		{
+			return (JLabel) component;
+		}
+		if (component instanceof java.awt.Container)
+		{
+			java.awt.Container container = (java.awt.Container) component;
+			for (int i = 0; i < container.getComponentCount(); i++)
+			{
+				JLabel found = findLabelContaining(container.getComponent(i), text);
+				if (found != null)
+				{
+					return found;
+				}
+			}
+		}
+		return null;
+	}
+
 	private static JButton findButton(Component component, String text)
 	{
 		if (component instanceof JButton && text.equals(((JButton) component).getText()))
@@ -553,6 +643,90 @@ public class CombatLogPanelTest
 				}
 				return null;
 			});
+	}
+
+	@Test
+	public void bothTotalsKeepTheLastDigitWithTheRest() throws Exception
+	{
+		Font font;
+		try (InputStream in = FontManager.class.getResourceAsStream("runescape_bold.ttf"))
+		{
+			assertNotNull(in);
+			font = Font.createFont(Font.TRUETYPE_FONT, in).deriveFont(Font.BOLD, 18f);
+		}
+		assertTrue(widestInkGap(paintAmount("162", font)) <= 3);
+		assertTrue(widestInkGap(paintAmount("362", font)) <= 3);
+		assertEquals(5, inkRuns(paintAmount("2,376", font)));
+	}
+
+	private static BufferedImage paintAmount(String text, Font font)
+	{
+		CombatLogPanel.TightAmount amount = new CombatLogPanel.TightAmount(text, font, Color.WHITE);
+		Dimension size = amount.getPreferredSize();
+		BufferedImage image = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = image.createGraphics();
+		amount.setSize(size);
+		amount.paint(graphics);
+		graphics.dispose();
+		return image;
+	}
+
+	private static int widestInkGap(BufferedImage image)
+	{
+		boolean[] ink = inkColumns(image);
+		int worst = 0;
+		int gap = 0;
+		boolean seen = false;
+		for (boolean column : ink)
+		{
+			if (column)
+			{
+				if (seen)
+				{
+					worst = Math.max(worst, gap);
+				}
+				seen = true;
+				gap = 0;
+			}
+			else if (seen)
+			{
+				gap++;
+			}
+		}
+		return worst;
+	}
+
+	private static int inkRuns(BufferedImage image)
+	{
+		boolean[] ink = inkColumns(image);
+		int runs = 0;
+		boolean on = false;
+		for (boolean column : ink)
+		{
+			if (column && !on)
+			{
+				runs++;
+			}
+			on = column;
+		}
+		return runs;
+	}
+
+	private static boolean[] inkColumns(BufferedImage image)
+	{
+		boolean[] ink = new boolean[image.getWidth()];
+		for (int x = 0; x < image.getWidth(); x++)
+		{
+			for (int y = 0; y < image.getHeight(); y++)
+			{
+				if (((image.getRGB(x, y) >>> 24) & 0xff) > 40)
+				{
+					ink[x] = true;
+					break;
+				}
+			}
+		}
+		return ink;
 	}
 
 	private static boolean isDark(int rgb)

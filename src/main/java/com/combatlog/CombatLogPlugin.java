@@ -7,6 +7,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -31,6 +32,7 @@ import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.ParamID;
 import net.runelite.api.Player;
+import net.runelite.api.Skill;
 import net.runelite.api.Projectile;
 import net.runelite.api.StructComposition;
 import net.runelite.api.WorldView;
@@ -42,9 +44,11 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ProjectileMoved;
 import net.runelite.api.events.NpcChanged;
 import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.NpcID;
 import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
@@ -118,10 +122,23 @@ public class CombatLogPlugin extends Plugin
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
 	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
-	/** Ticks with no surface Doom before that delve's log is closed. */
+	/** Ticks with no Doom at all before that delve's log is closed. */
 	private static final int DOOM_ABSENT_TICKS = 8;
+	/**
+	 * Delve 5 and deeper dig down and come back. Delve 6 runs three car slams,
+	 * and Doom can be off the field between them for longer than the delve 5 dig.
+	 */
+	private static final int DOOM_BURROW_WAIT_TICKS = 80;
 	private int doomAbsentTick = -1;
 	private boolean doomDied;
+	/** The descent into the car phase was already kept out of lost ticks. */
+	private boolean doomBurrowGapNoted;
+	/** The surface boss is gone and the same delve may still come back. */
+	private boolean doomLeftSurface;
+	private int meleePunishBonus;
+	private int meleePunishUntil = -1;
+	/** Ticks after the interrupting melee hit, when the bonus splats can land. */
+	private int meleePunishLandUntil = -1;
 	private final Map<Integer, List<Integer>> incomingByTick = new HashMap<>();
 	private int lastSpecPercent = -1;
 	private int lastVengeance = -1;
@@ -140,6 +157,11 @@ public class CombatLogPlugin extends Plugin
 	@Nullable
 	private Integer swingStyleIcon;
 	private final List<PendingHit> pending = new ArrayList<>();
+	/** Last seen combat-skill experience, so a tick's gain can be told from the total. */
+	private final Map<Skill, Integer> skillXp = new EnumMap<>(Skill.class);
+	/** Attack, strength, defence, ranged, and magic experience gained on a tick. */
+	private final Map<Integer, int[]> styleXpByTick = new HashMap<>();
+	private boolean styleXpKnown;
 	private final IncomingStyles incomingStyles = new IncomingStyles();
 	private final IncomingWeapons incomingWeapons = new IncomingWeapons();
 	private int lastHitTick = -100;
@@ -153,6 +175,7 @@ public class CombatLogPlugin extends Plugin
 	protected void startUp()
 	{
 		running = true;
+		seedStyleXp();
 		combatLog.setMaxEntries(config.maxEntries());
 		monsterIcons.setEnabled(config.monsterIcons());
 		try
@@ -194,10 +217,13 @@ public class CombatLogPlugin extends Plugin
 	private void resetState()
 	{
 		pending.clear();
+		styleXpByTick.clear();
 		lastHealth.clear();
 		quietDespawns.clear();
 		doomAbsentTick = -1;
 		doomDied = false;
+		doomBurrowGapNoted = false;
+		doomLeftSurface = false;
 		incomingByTick.clear();
 		incomingStyles.clear();
 		incomingWeapons.clear();
@@ -221,6 +247,9 @@ public class CombatLogPlugin extends Plugin
 		opponentIndex = null;
 		opponentName = null;
 		opponentNpcId = null;
+		meleePunishBonus = 0;
+		meleePunishUntil = -1;
+		meleePunishLandUntil = -1;
 	}
 
 	private void loadSidebarIcon()
@@ -322,8 +351,8 @@ public class CombatLogPlugin extends Plugin
 		{
 			int scale = npc.getHealthScale();
 			int ratio = npc.getHealthRatio();
-			// Shield breaks and phase changes zero this bar without ending the delve.
-			if (scale > 0 && ratio == 0 && !DoomDelve.surface(npcId(npc)))
+			// Shield breaks and the car phase zero this bar without ending the delve.
+			if (scale > 0 && ratio == 0 && !DoomDelve.isDoom(npcId(npc)))
 			{
 				combatLog.closeLife(npc.getIndex(), tick);
 			}
@@ -372,6 +401,14 @@ public class CombatLogPlugin extends Plugin
 			}
 			Integer weapon = equippedWeaponId();
 			combatLog.noteAttack(tick, index, target.getName(), weapon, attackSpeed(weapon));
+			if (target instanceof NPC && index != null && meleePunishUntil >= tick && DoomDelve.surface(npcId((NPC) target)))
+			{
+				armPunishLanding(tick, index);
+			}
+			if (specMarker.armedOn(tick))
+			{
+				combatLog.markSpecSwing(tick, index);
+			}
 			playerAttackTick = tick;
 			playerAttackIndex = index;
 			swingPrayerTick = tick;
@@ -390,9 +427,14 @@ public class CombatLogPlugin extends Plugin
 			noteOpponentSwing((Player) actor, tick);
 			return;
 		}
-		if (actor instanceof NPC && isThrall((NPC) actor))
+		if (actor instanceof NPC)
 		{
-			rememberThrall((NPC) actor);
+			NPC npc = (NPC) actor;
+			noteDoomCharge(npc, tick);
+			if (isThrall(npc))
+			{
+				rememberThrall(npc);
+			}
 		}
 	}
 
@@ -418,6 +460,12 @@ public class CombatLogPlugin extends Plugin
 				}
 				Integer weapon = equippedWeaponId();
 				specMarker.arm(index, weapon == null ? 0 : weapon, tick);
+				String name = target == null || target.getName() == null ? "" : target.getName();
+				if (index != null || !name.isEmpty())
+				{
+					combatLog.noteAttack(tick, index, name, weapon, attackSpeed(weapon));
+					combatLog.markSpecSwing(tick, index);
+				}
 			}
 			lastSpecPercent = current;
 		}
@@ -458,7 +506,7 @@ public class CombatLogPlugin extends Plugin
 		NPC npc = event.getNpc();
 		int index = npc.getIndex();
 		int tick = client.getTickCount();
-		if (DoomDelve.surface(npcId(npc)))
+		if (DoomDelve.isDoom(npcId(npc)))
 		{
 			if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
 			{
@@ -556,10 +604,22 @@ public class CombatLogPlugin extends Plugin
 		int amount = event.getHitsplat().getAmount();
 		boolean splash = status == null && MagicSplash.outgoing(type, playerCasting(), incomingStyles.playerSpellLanding(npcIndex, client.getGameCycle()));
 		int captureType = splash && type == HitsplatID.BLOCK_OTHER ? HitsplatID.BLOCK_ME : type;
-		Integer weapon = status == null ? combatLog.weaponFor(npcIndex, tick, equippedWeaponId()) : null;
+		Integer equipped = equippedWeaponId();
+		Integer weapon = status == null ? combatLog.weaponFor(npcIndex, tick, equipped) : null;
+		if (StrayZero.drop(amount, splash, weapon, equipped))
+		{
+			return;
+		}
+		boolean unattributed = false;
 		HitRecord record = status != null
 			? HitCapture.captureStatus(type, amount, actor.getName(), targetKind, npcId, npcIndex, System.currentTimeMillis(), tick)
 			: HitCapture.capture(captureType, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, config.includeBlocks() || splash, config.recordPlayerHits(), System.currentTimeMillis());
+		if (record == null && status == null && amount > 0 && meleePunishBonus > 0 && amount == meleePunishBonus
+			&& meleePunishLandUntil >= tick && npcId != null && npcId == NpcID.DOM_BOSS && HitStyle.othersDamage(type))
+		{
+			record = HitCapture.capture(HitsplatID.DAMAGE_ME, amount, actor.getName(), targetKind, npcId, npcIndex, weapon, false, true, true, System.currentTimeMillis());
+			unattributed = record != null;
+		}
 		if (record != null && splash)
 		{
 			record = record.asSplash();
@@ -573,8 +633,31 @@ public class CombatLogPlugin extends Plugin
 		int overkill = overkill(actor, npcIndex, npcId, amount);
 		boolean killed = actor instanceof NPC && ((NPC) actor).getHealthScale() > 0 && ((NPC) actor).getHealthRatio() == 0;
 		record = record.withMeta(tick, null, null, weapon, false, status != null ? status : DamageSource.WEAPON, overkill, 0);
-		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial()));
+		pending.add(new PendingHit(tick, record, npcIndex, status != null, vengeanceClearedTick == tick, recentAttack, weapon, killed, specMarker.serial(), unattributed));
 		lastHitTick = tick;
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		int index = styleIndex(event.getSkill());
+		if (index < 0)
+		{
+			return;
+		}
+		Integer before = skillXp.put(event.getSkill(), event.getXp());
+		if (!styleXpKnown || before == null)
+		{
+			return;
+		}
+		int gained = event.getXp() - before;
+		// A login or a hop reports the whole skill total. That is not a hit.
+		if (gained <= 0 || gained > 5000)
+		{
+			return;
+		}
+		int[] totals = styleXpByTick.computeIfAbsent(client.getTickCount(), key -> new int[5]);
+		totals[index] += gained;
 	}
 
 	@Subscribe
@@ -1082,6 +1165,87 @@ public class CombatLogPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Doom's yellow beam is the melee punish window. The bonus hitsplat lands
+	 * on the interrupt, or a tick or two after it.
+	 */
+	private void noteDoomCharge(NPC npc, int tick)
+	{
+		int animation = npc.getAnimation();
+		int index = npc.getIndex();
+		if (DoomPunish.charging(animation))
+		{
+			int bonus = DoomPunish.bonus(strengthBonus());
+			int until = tick + DoomPunish.CHARGE_TICKS;
+			meleePunishBonus = bonus;
+			meleePunishUntil = until;
+			combatLog.notePunish(index, tick, until, bonus);
+		}
+		else if (DoomPunish.cancelled(animation))
+		{
+			int bonus = DoomPunish.bonus(strengthBonus());
+			int until = tick + DoomPunish.LAND_TICKS;
+			meleePunishBonus = bonus;
+			meleePunishUntil = until;
+			meleePunishLandUntil = until;
+			combatLog.notePunish(index, Math.max(0, tick - DoomPunish.CHARGE_TICKS), until, bonus);
+		}
+		else if (DoomPunish.fired(animation))
+		{
+			meleePunishBonus = 0;
+			meleePunishUntil = -1;
+			meleePunishLandUntil = -1;
+			combatLog.clearPunish();
+		}
+	}
+
+	/**
+	 * The interrupting swing is in melee gear, which may have just been switched
+	 * to. The bonus splats land on that swing and the next few ticks.
+	 */
+	private void armPunishLanding(int tick, int npcIndex)
+	{
+		int bonus = DoomPunish.bonus(strengthBonus());
+		if (bonus <= 0)
+		{
+			return;
+		}
+		int until = tick + DoomPunish.LAND_TICKS;
+		meleePunishBonus = bonus;
+		meleePunishUntil = Math.max(meleePunishUntil, until);
+		meleePunishLandUntil = Math.max(meleePunishLandUntil, until);
+		combatLog.notePunish(npcIndex, Math.max(0, tick - DoomPunish.CHARGE_TICKS), meleePunishUntil, bonus);
+	}
+
+	/** Gear strength bonus. Prayers are not part of the punish formula. */
+	private int strengthBonus()
+	{
+		if (itemManager == null)
+		{
+			return 0;
+		}
+		ItemContainer worn = client.getItemContainer(InventoryID.WORN);
+		if (worn == null)
+		{
+			return 0;
+		}
+		int bonus = 0;
+		for (Item item : worn.getItems())
+		{
+			if (item == null || item.getId() <= 0)
+			{
+				continue;
+			}
+			ItemStats stats = itemManager.getItemStats(item.getId());
+			if (stats == null || stats.getEquipment() == null)
+			{
+				continue;
+			}
+			bonus += stats.getEquipment().getStr();
+		}
+		return bonus;
+	}
+
 	private Integer equippedWeaponId()
 	{
 		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
@@ -1335,6 +1499,7 @@ public class CombatLogPlugin extends Plugin
 			classify(ready.subList(index, end));
 			index = end;
 		}
+		styleXpByTick.keySet().removeIf(tick -> tick < currentTick);
 		if (!ready.isEmpty())
 		{
 			queueRefresh();
@@ -1346,41 +1511,58 @@ public class CombatLogPlugin extends Plugin
 	 * kept, so a later descent does not relabel this kill.
 	 */
 	/**
-	 * Keeps one surface log per delve. The shield and a respawn after burrowing
-	 * join the fight already open for this level. Burrowed stays separate.
+	 * Keeps one log per delve. The shield, the burrowed form from delve 5, and
+	 * a respawn after the car phase join the fight already open for this level.
+	 * Time with any Doom form present does not count toward closing the log.
 	 */
 	private void trackDoom(int tick)
 	{
 		int level = DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP));
 		boolean surfaceHere = false;
 		boolean doomHere = false;
-		boolean surfaceHealthy = false;
+		boolean healthy = false;
+		boolean burrowedHere = false;
 		for (NPC npc : npcs())
 		{
 			Integer id = npcId(npc);
+			boolean alive = npc.getHealthScale() <= 0 || npc.getHealthRatio() > 0;
 			if (DoomDelve.surface(id))
 			{
 				surfaceHere = true;
 				doomHere = true;
-				if (npc.getHealthScale() <= 0 || npc.getHealthRatio() > 0)
-				{
-					surfaceHealthy = true;
-				}
+				healthy |= alive;
 				combatLog.joinDoomSurface(npc.getIndex(), level);
 			}
-			else if (DoomDelve.burrowed(id))
+			else if (DoomDelve.burrowed(id) && DoomDelve.burrowJoins(level))
 			{
 				doomHere = true;
+				burrowedHere = true;
+				healthy |= alive;
+				combatLog.joinDoomSurface(npc.getIndex(), level);
 			}
+		}
+		if (burrowedHere && !doomBurrowGapNoted)
+		{
+			combatLog.resumeDoomSurface(tick);
+			doomBurrowGapNoted = true;
 		}
 		if (surfaceHere)
 		{
-			if (doomAbsentTick >= 0)
+			if (doomLeftSurface)
 			{
 				combatLog.resumeDoomSurface(tick);
 			}
+			doomLeftSurface = false;
+			doomBurrowGapNoted = false;
+		}
+		else if (doomHere || combatLog.hasOpenDoomSurface())
+		{
+			doomLeftSurface = true;
+		}
+		if (doomHere)
+		{
 			doomAbsentTick = -1;
-			if (surfaceHealthy)
+			if (healthy)
 			{
 				doomDied = false;
 			}
@@ -1389,21 +1571,37 @@ public class CombatLogPlugin extends Plugin
 		{
 			doomAbsentTick = tick;
 		}
-		if (!doomHere && doomAbsentTick >= 0 && tick - doomAbsentTick >= DOOM_ABSENT_TICKS)
+		int wait = DoomDelve.burrowJoins(level) ? DOOM_BURROW_WAIT_TICKS : DOOM_ABSENT_TICKS;
+		if (!doomHere && doomAbsentTick >= 0 && tick - doomAbsentTick >= wait)
 		{
 			combatLog.finishDoomSurface(tick, doomDied);
 			doomAbsentTick = -1;
 			doomDied = false;
+			doomLeftSurface = false;
+			doomBurrowGapNoted = false;
+		}
+		if (combatLog.foldDoom())
+		{
+			queueRefresh();
 		}
 	}
 
 	private void joinDoomSurface(@Nullable Integer npcIndex, @Nullable Integer npcId)
 	{
-		if (!DoomDelve.surface(npcId))
+		if (DoomDelve.surface(npcId))
+		{
+			combatLog.joinDoomSurface(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+			return;
+		}
+		if (!DoomDelve.burrowed(npcId))
 		{
 			return;
 		}
-		combatLog.joinDoomSurface(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+		int level = DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP));
+		if (DoomDelve.burrowJoins(level))
+		{
+			combatLog.joinDoomSurface(npcIndex, level);
+		}
 	}
 
 	private void noteDoomDelve(@Nullable Integer npcIndex, @Nullable Integer npcId)
@@ -1426,8 +1624,142 @@ public class CombatLogPlugin extends Plugin
 		return hp > 0 ? hp : null;
 	}
 
+	/**
+	 * Drops hitsplats from this tick that the combat experience does not account for.
+	 * Other players hitting the Gemstone Crab show up on the same tick, including
+	 * their max hits, and those used to be added onto the blowpipe hit.
+	 */
+	private List<PendingHit> withoutForeignHits(List<PendingHit> hits)
+	{
+		hits = claimPunish(hits);
+		if (!styleXpKnown || hits.isEmpty())
+		{
+			return hits;
+		}
+		int tick = hits.get(0).tick;
+		int[] gained = styleXpByTick.get(tick);
+		int styleXp = 0;
+		int magicXp = 0;
+		if (gained != null)
+		{
+			for (int value : gained)
+			{
+				styleXp += value;
+			}
+			magicXp = gained[4];
+		}
+		boolean crab = false;
+		int[] amounts = new int[hits.size()];
+		boolean[] punishable = new boolean[hits.size()];
+		for (int i = 0; i < hits.size(); i++)
+		{
+			PendingHit hit = hits.get(i);
+			if (hit.punish || hit.burn || hit.record.getSource().isStatus())
+			{
+				amounts[i] = -1;
+				continue;
+			}
+			amounts[i] = Math.max(0, hit.record.getAmount());
+			Integer npcId = hit.record.getNpcId();
+			if (npcId != null && npcId == NpcID.GEMSTONE_CRAB)
+			{
+				crab = true;
+			}
+			// Only the unshielded boss. Grub explosions hit the shielded form and are not the punish.
+			punishable[i] = meleePunishLandUntil >= tick && npcId != null && npcId == NpcID.DOM_BOSS;
+		}
+		boolean[] keep = OwnHits.keep(amounts, styleXp, crab, magicXp > 0 && magicXp == styleXp);
+		if (keep != null)
+		{
+			boolean[] before = keep.clone();
+			PunishHits.restore(keep, amounts, meleePunishBonus, punishable);
+			for (int i = 0; i < hits.size(); i++)
+			{
+				if (keep[i] && !before[i])
+				{
+					hits.get(i).markPunish();
+				}
+			}
+		}
+		if (keep == null)
+		{
+			return hits;
+		}
+		List<PendingHit> kept = new ArrayList<>();
+		for (int i = 0; i < hits.size(); i++)
+		{
+			if (keep[i])
+			{
+				kept.add(hits.get(i));
+			}
+		}
+		return kept;
+	}
+
+	/**
+	 * A bonus splat is not marked as yours. Keep it only when it matches the
+	 * strength bonus on the unshielded boss. Grub explosions are left out.
+	 */
+	private List<PendingHit> claimPunish(List<PendingHit> hits)
+	{
+		int room = Math.max(1, playerAttackSplats);
+		int taken = 0;
+		List<PendingHit> kept = new ArrayList<>();
+		for (PendingHit hit : hits)
+		{
+			if (!hit.unattributed)
+			{
+				kept.add(hit);
+				continue;
+			}
+			if (meleePunishBonus <= 0 || hit.record.getAmount() != meleePunishBonus
+				|| hit.record.getNpcId() == null || hit.record.getNpcId() != NpcID.DOM_BOSS
+				|| meleePunishLandUntil < hit.tick || taken >= room)
+			{
+				continue;
+			}
+			hit.markPunish();
+			taken++;
+			kept.add(hit);
+		}
+		return kept;
+	}
+
+	private void seedStyleXp()
+	{
+		for (Skill skill : new Skill[] {Skill.ATTACK, Skill.STRENGTH, Skill.DEFENCE, Skill.RANGED, Skill.MAGIC})
+		{
+			skillXp.put(skill, client.getSkillExperience(skill));
+		}
+		styleXpKnown = true;
+	}
+
+	private static int styleIndex(Skill skill)
+	{
+		switch (skill)
+		{
+			case ATTACK:
+				return 0;
+			case STRENGTH:
+				return 1;
+			case DEFENCE:
+				return 2;
+			case RANGED:
+				return 3;
+			case MAGIC:
+				return 4;
+			default:
+				return -1;
+		}
+	}
+
 	private void classify(List<PendingHit> hits)
 	{
+		hits = withoutForeignHits(hits);
+		if (hits.isEmpty())
+		{
+			return;
+		}
 		int tick = hits.get(0).tick;
 		boolean swung = thrallMax > 0 && thrallNpcId != null;
 		int vengeanceAt = pickVengeance(hits, tick);
@@ -1435,7 +1767,7 @@ public class CombatLogPlugin extends Plugin
 		for (int i = 0; i < hits.size(); i++)
 		{
 			PendingHit hit = hits.get(i);
-			if (hit.burn || hit.record.getSource().isStatus() || i == vengeanceAt)
+			if (hit.punish || hit.burn || hit.record.getSource().isStatus() || i == vengeanceAt)
 			{
 				continue;
 			}
@@ -1460,55 +1792,92 @@ public class CombatLogPlugin extends Plugin
 		{
 			vengeanceAt = unmatchedVengeance(hits, thrallAt);
 		}
-		for (int i = 0; i < hits.size(); i++)
+		for (int pass = 0; pass < 2; pass++)
 		{
-			PendingHit hit = hits.get(i);
-			DamageSource recorded = hit.record.getSource();
-			DamageSource source = hit.burn || recorded.isStatus()
+			for (int i = 0; i < hits.size(); i++)
+			{
+				if (deferPunish(hits.get(i)) != (pass == 1))
+				{
+					continue;
+				}
+				storeHit(hits.get(i), i, vengeanceAt, thrallAt);
+			}
+		}
+	}
+
+	/**
+	 * The punish bonus is stored after the weapon hits on the same tick, so a
+	 * 23 beside a 22 and a 32 is the bonus and not the first hit of the swing.
+	 */
+	private boolean deferPunish(PendingHit hit)
+	{
+		if (hit.punish)
+		{
+			return true;
+		}
+		return meleePunishBonus > 0
+			&& meleePunishUntil >= hit.tick
+			&& hit.record.getAmount() == meleePunishBonus
+			&& !hit.burn
+			&& DoomDelve.surface(hit.record.getNpcId());
+	}
+
+	private void storeHit(PendingHit hit, int i, int vengeanceAt, int thrallAt)
+	{
+		DamageSource recorded = hit.record.getSource();
+		DamageSource source = hit.punish
+			? DamageSource.PUNISH
+			: hit.burn || recorded.isStatus()
 				? recorded
 				: i == vengeanceAt
 					? DamageSource.VENGEANCE
 					: i == thrallAt
 						? DamageSource.THRALL
 						: DamageSource.WEAPON;
-			boolean special = specMarker.claim(hit.npcIndex, DamageDirection.OUTGOING, source, hit.specSerial);
-			Integer weapon = source == DamageSource.THRALL || source.isStatus()
-				? null
-				: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
-			HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
-			if (source.isStatus())
-			{
-				record = record.asSource(source, null, null);
-			}
-			if (source == DamageSource.WEAPON)
-			{
-				record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
-				if (weapon == null)
-				{
-					record = record.withAttackStyle(styleFromSwing(hit.npcIndex, hit.tick));
-				}
-			}
-			if (source == DamageSource.THRALL)
-			{
-				record = record.asSource(DamageSource.THRALL, null, thrallNpcId);
-			}
-			joinDoomSurface(hit.npcIndex, record.getNpcId());
-			combatLog.add(record);
-			noteDoomDelve(hit.npcIndex, record.getNpcId());
-			if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
-			{
-				Integer maxHp = npcManager.getHealth(record.getNpcId());
-				if (maxHp != null)
-				{
-					combatLog.noteMaxHp(hit.npcIndex, maxHp);
-				}
-			}
-			if (hit.killed && !DoomDelve.surface(record.getNpcId()))
-			{
-				combatLog.closeLife(hit.npcIndex, hit.tick);
-			}
-			log.debug("{} [{}]", record.describe(), record.getSource());
+		// The spec flag follows the swing that spent the energy. Claiming the
+		// first hitsplat after the energy drop tagged the dart that was
+		// already in the air, and the real blowpipe spec landed as a normal hit.
+		boolean special = false;
+		Integer weapon = source == DamageSource.THRALL || source == DamageSource.PUNISH || source.isStatus()
+			? null
+			: combatLog.weaponFor(hit.npcIndex, hit.tick, hit.weapon);
+		HitRecord record = hit.record.withMeta(hit.tick, null, null, weapon, special, source, hit.record.getOverkill(), 0);
+		if (source.isStatus())
+		{
+			record = record.asSource(source, null, null);
 		}
+		if (source == DamageSource.PUNISH)
+		{
+			record = record.withWeapon(null).withPrayer(null);
+		}
+		if (source == DamageSource.WEAPON)
+		{
+			record = record.withPrayer(prayerFromSwing(hit.npcIndex, hit.tick));
+			if (weapon == null)
+			{
+				record = record.withAttackStyle(styleFromSwing(hit.npcIndex, hit.tick));
+			}
+		}
+		if (source == DamageSource.THRALL)
+		{
+			record = record.asSource(DamageSource.THRALL, null, thrallNpcId).withPrayer(null);
+		}
+		joinDoomSurface(hit.npcIndex, record.getNpcId());
+		combatLog.add(record);
+		noteDoomDelve(hit.npcIndex, record.getNpcId());
+		if (hit.npcIndex != null && record.getNpcId() != null && npcManager != null)
+		{
+			Integer maxHp = npcManager.getHealth(record.getNpcId());
+			if (maxHp != null)
+			{
+				combatLog.noteMaxHp(hit.npcIndex, maxHp);
+			}
+		}
+		if (hit.killed && !DoomDelve.surface(record.getNpcId()))
+		{
+			combatLog.closeLife(hit.npcIndex, hit.tick);
+		}
+		log.debug("{} [{}]", record.describe(), record.getSource());
 	}
 
 	/**
@@ -1590,8 +1959,10 @@ public class CombatLogPlugin extends Plugin
 		private final Integer weapon;
 		private final boolean killed;
 		private final int specSerial;
+		private final boolean unattributed;
+		private boolean punish;
 
-		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial)
+		private PendingHit(int tick, HitRecord record, Integer npcIndex, boolean burn, boolean vengeanceTick, boolean recentAttack, Integer weapon, boolean killed, int specSerial, boolean unattributed)
 		{
 			this.tick = tick;
 			this.record = record;
@@ -1602,6 +1973,12 @@ public class CombatLogPlugin extends Plugin
 			this.weapon = weapon;
 			this.killed = killed;
 			this.specSerial = specSerial;
+			this.unattributed = unattributed;
+		}
+
+		private void markPunish()
+		{
+			punish = true;
 		}
 	}
 

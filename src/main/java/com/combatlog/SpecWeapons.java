@@ -33,8 +33,25 @@ public final class SpecWeapons
 			case 28534:
 				return 4;
 			default:
-				return 1;
+				// The crystal halberd sweep can hit one large monster on two or three tiles.
+				return crystalHalberd(weaponId) ? 3 : 1;
 		}
+	}
+
+	/**
+	 * The sweep's extra hitsplats land on the swing tick or the tick after it.
+	 * Spare claims must be gone on the tick after that.
+	 */
+	public static boolean sameTick(int weaponId)
+	{
+		return crystalHalberd(weaponId);
+	}
+
+	private static boolean crystalHalberd(int weaponId)
+	{
+		return weaponId == 23987 // crystal halberd
+			|| weaponId == 24125 // crystal halberd (2500)
+			|| (weaponId >= 13080 && weaponId <= 13101);
 	}
 
 	/**

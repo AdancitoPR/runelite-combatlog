@@ -202,7 +202,11 @@ class CombatLogOverlay extends OverlayPanel
 			.build();
 		BufferedImage monster = fight.getKind() == TargetKind.PLAYER
 			? PlayerIcon.image(fight, monsterIcons, weaponIcons)
-			: fight.getNpcId() == null ? null : monsterIcons.get(fight.getNpcId());
+			: fight.getNpcId() == null || monsterIcons == null ? null : monsterIcons.get(fight.getNpcId());
+		if (monster == null && fight.getNpcId() == null && monsterIcons != null && CombatDummy.named(fight.getName()))
+		{
+			monster = monsterIcons.get(CombatDummy.ICON_ID);
+		}
 		if (monster == null)
 		{
 			return line;
@@ -219,27 +223,30 @@ class CombatLogOverlay extends OverlayPanel
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
-		boolean special = attack.isSpecial();
+		boolean punish = hit.getSource() == DamageSource.PUNISH;
+		boolean special = attack.isSpecial() && !punish;
 		boolean splash = attack.isSplash();
 		boolean status = hit.getSource().isStatus();
 		String kind = CombatLogFormatter.rowKind(attack);
 		Color kindColor = splash ? DamageColors.SPLASH : special && !status ? DamageColors.SPEC : incoming ? DamageColors.INCOMING : DamageColors.OUTGOING;
-		BufferedImage splat = config.damageAmount() == DamageAmount.HITSPLAT && gameHitsplats != null
+		boolean spelledOut = CombatLogFormatter.specHits(attack) != null || punish;
+		BufferedImage splat = !spelledOut && config.damageAmount() == DamageAmount.HITSPLAT && gameHitsplats != null
 			? gameHitsplats.image(attack)
 			: null;
 		String amount = splat == null ? CombatLogFormatter.rowAmount(attack) : maxNote(attack);
-		return new IconLine(kind, kindColor, amount, DamageColors.forHit(hit), hitIcon(hit), splat);
+		Color amountColor = special && !status ? DamageColors.SPEC : DamageColors.forHit(hit);
+		return new IconLine(kind, kindColor, amount, amountColor, hitIcon(hit), splat);
 	}
 
 	private BufferedImage hitIcon(HitRecord hit)
 	{
-		if (hit.getSource().isStatus())
+		if (hit.getSource().isStatus() || hit.getSource() == DamageSource.PUNISH)
 		{
 			return null;
 		}
 		if (hit.getSource() == DamageSource.THRALL)
 		{
-			return monsterIcons.get(Thralls.iconId(hit));
+			return Thralls.image(hit);
 		}
 		if (hit.getDirection() == DamageDirection.INCOMING && hit.getWeaponItemId() != null)
 		{
@@ -266,7 +273,11 @@ class CombatLogOverlay extends OverlayPanel
 
 	private BufferedImage prayerIcon(HitRecord hit)
 	{
-		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() != DamageSource.WEAPON || prayerIcons == null)
+		if (hit.getDirection() != DamageDirection.OUTGOING || prayerIcons == null)
+		{
+			return null;
+		}
+		if (hit.getSource() != DamageSource.WEAPON)
 		{
 			return null;
 		}

@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 import net.runelite.api.HitsplatID;
 import net.runelite.api.Prayer;
+import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.NpcID;
 import net.runelite.api.gameval.SpotanimID;
 import net.runelite.api.gameval.SpriteID;
@@ -14,6 +15,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -295,6 +297,34 @@ public class CombatLogTest
 	}
 
 	@Test
+	public void unattributedIncomingDoesNotOpenAFightNamedTaken()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 10, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		CombatSnapshot snapshot = log.summarize(24_000L, 40, DamageView.BOTH);
+		assertEquals(0, snapshot.getFights().size());
+		assertEquals(0L, snapshot.getDamageTaken());
+	}
+
+	@Test
+	public void unattributedIncomingDoesNotStartAFightBesideSeveralOpponents()
+	{
+		CombatLog log = new CombatLog(10);
+		log.add(npcHit(1, "Goblin", 4, 301, 10));
+		log.add(npcHit(2, "Guard", 8, 302, 5));
+		log.add(new HitRecord(24_000L, "Taken", TargetKind.NPC, null, null, null, 8, HitKind.HIT, null, 40, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		List<Fight> fights = log.summarize(24_000L, 40, DamageView.BOTH).getFights();
+		assertEquals(2, fights.size());
+		for (Fight fight : fights)
+		{
+			assertNotEquals("Taken", fight.getName());
+			assertEquals(0, fight.damageTaken());
+		}
+	}
+
+	@Test
 	public void aSecondNpcGetsItsOwnFight()
 	{
 		CombatLog log = new CombatLog(10);
@@ -519,6 +549,40 @@ public class CombatLogTest
 		assertEquals(4, SpecWeapons.splats(13652));
 		assertEquals(4, SpecWeapons.splats(26708));
 		assertEquals(1, SpecWeapons.splats(1333));
+		assertEquals(3, SpecWeapons.splats(23987));
+		assertEquals(3, SpecWeapons.splats(24125));
+		assertEquals(3, SpecWeapons.splats(13091));
+		assertEquals(1, SpecWeapons.splats(23989));
+	}
+
+	@Test
+	public void crystalHalberdSweepIsOneSpecAndDoesNotClaimTheNextSwing()
+	{
+		SpecMarker marker = new SpecMarker();
+		marker.arm(4, 23987, 20);
+		int serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		marker.arm(4, 23987, 40);
+		serial = marker.serial();
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		marker.expire(41);
+		assertTrue(marker.serial() != 0);
+		assertTrue(marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+		marker.expire(42);
+		assertEquals(0, marker.serial());
+		assertTrue(!marker.claim(4, DamageDirection.OUTGOING, DamageSource.WEAPON, serial));
+
+		HitRecord miss = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 0, HitKind.BLOCK, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 1);
+		HitRecord damage = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 38, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, 4L, 2);
+		List<AttackRow> rows = AttackRow.group(Arrays.asList(miss, damage));
+		assertEquals(1, rows.size());
+		assertTrue(rows.get(0).isSpecial());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("38", CombatLogFormatter.rowAmount(rows.get(0)));
 	}
 
 	@Test
@@ -550,6 +614,7 @@ public class CombatLogTest
 		CombatLog log = new CombatLog(10);
 		log.noteAttack(10, 4, "Goblin", 1333, 4);
 		assertEquals(Integer.valueOf(1333), log.weaponFor(4, 12, 4151));
+		assertEquals(Integer.valueOf(4151), log.weaponFor(4, 14, 4151));
 		assertEquals(Integer.valueOf(4151), log.weaponFor(4, 30, 4151));
 	}
 
@@ -658,6 +723,8 @@ public class CombatLogTest
 		assertTrue(DoomDelve.surface(NpcID.DOM_BOSS_SHIELDED));
 		assertFalse(DoomDelve.surface(NpcID.DOM_BOSS_BURROWED));
 		assertTrue(DoomDelve.burrowed(NpcID.DOM_BOSS_BURROWED));
+		assertFalse(DoomDelve.burrowJoins(4));
+		assertTrue(DoomDelve.burrowJoins(5));
 
 		CombatLog log = new CombatLog(10);
 		log.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
@@ -694,9 +761,101 @@ public class CombatLogTest
 
 		log.add(npcHit(70, "Doom of Mokhaiotl", 20, NpcID.DOM_BOSS, 10));
 		log.noteDelve(20, 5);
-		fights = log.summarize(70_000L, 10).getFights();
+		log.noteAttack(70, 20, "Doom of Mokhaiotl", 20997, 4);
+		log.resumeDoomSurface(90);
+		log.joinDoomSurface(21, 5);
+		log.add(npcHit(90, "Doom of Mokhaiotl (Burrowed)", 21, NpcID.DOM_BOSS_BURROWED, 30));
+		log.noteDelve(21, 5);
+		log.resumeDoomSurface(110);
+		log.joinDoomSurface(22, 5);
+		log.add(npcHit(110, "Doom of Mokhaiotl", 22, NpcID.DOM_BOSS, 8));
+		log.noteDelve(22, 5);
+		fights = log.summarize(110_000L, 10).getFights();
 		assertEquals(Integer.valueOf(5), fights.get(0).getDelve());
-		assertEquals(10, fights.get(0).damageDone());
+		assertEquals(48, fights.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", fights.get(0).getName());
+		assertEquals(Integer.valueOf(NpcID.DOM_BOSS), fights.get(0).getNpcId());
+		assertEquals(0, FightSummary.lostTicks(fights.get(0)));
+
+		CombatLog carFirst = new CombatLog(10);
+		carFirst.add(npcHit(1, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 18));
+		carFirst.noteDelve(12, 5);
+		carFirst.joinDoomSurface(4, 5);
+		carFirst.add(npcHit(8, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 40));
+		carFirst.noteDelve(4, 5);
+		carFirst.joinDoomSurface(9, 5);
+		carFirst.add(npcHit(16, "Doom of Mokhaiotl", 9, NpcID.DOM_BOSS_SHIELDED, 7));
+		List<Fight> carFights = carFirst.summarize(16_000L, 10).getFights();
+		assertEquals(1, carFights.size());
+		assertEquals("Doom of Mokhaiotl", carFights.get(0).getName());
+		assertEquals(Integer.valueOf(5), carFights.get(0).getDelve());
+		assertEquals(65, carFights.get(0).damageDone());
+
+		CombatLog split = new CombatLog(10);
+		split.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
+		split.noteDelve(4, 5);
+		split.finishDoomSurface(40, true);
+		split.add(npcHit(50, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 58));
+		split.noteDelve(12, 5);
+		List<Fight> together = split.summarize(50_000L, 10).getFights();
+		assertEquals(1, together.size());
+		assertEquals(Integer.valueOf(5), together.get(0).getDelve());
+		assertEquals(158, together.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", together.get(0).getName());
+
+		split.joinDoomSurface(12, 5);
+		split.closeLife(12, 60);
+		together = split.summarize(60_000L, 10).getFights();
+		assertEquals(1, together.size());
+		assertFalse(together.get(0).isClosed());
+
+		CombatLog delveSix = new CombatLog(10);
+		delveSix.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 482));
+		delveSix.noteDelve(4, 6);
+		delveSix.finishDoomSurface(80, true);
+		delveSix.add(npcHit(100, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 295));
+		delveSix.noteDelve(12, 6);
+		List<Fight> oneDelve = delveSix.summarize(100_000L, 10).getFights();
+		assertEquals(1, oneDelve.size());
+		assertEquals(Integer.valueOf(6), oneDelve.get(0).getDelve());
+		assertEquals(777, oneDelve.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", oneDelve.get(0).getName());
+
+		CombatLog pieces = new CombatLog(10);
+		pieces.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 308));
+		pieces.noteDelve(4, 5);
+		pieces.finishDoomSurface(40, true);
+		pieces.add(npcHit(500, "Doom of Mokhaiotl", 8, NpcID.DOM_BOSS, 401));
+		pieces.noteDelve(8, 5);
+		pieces.finishDoomSurface(600, true);
+		pieces.add(npcHit(2000, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 127));
+		pieces.noteDelve(12, 5);
+		List<Fight> onePiece = pieces.summarize(2_000_000L, 10).getFights();
+		assertEquals(1, onePiece.size());
+		assertEquals(Integer.valueOf(5), onePiece.get(0).getDelve());
+		assertEquals(836, onePiece.get(0).damageDone());
+
+		pieces.add(npcHit(2100, "Doom of Mokhaiotl", 20, NpcID.DOM_BOSS, 20));
+		pieces.noteDelve(20, 1);
+		pieces.add(npcHit(2200, "Doom of Mokhaiotl", 21, NpcID.DOM_BOSS, 40));
+		pieces.noteDelve(21, 5);
+		List<Fight> nextRun = pieces.summarize(2_200_000L, 10).getFights();
+		assertEquals(3, nextRun.size());
+		assertEquals(40, nextRun.get(0).damageDone());
+		assertEquals(Integer.valueOf(5), nextRun.get(0).getDelve());
+		assertEquals(836, nextRun.get(2).damageDone());
+
+		CombatLog wipe = new CombatLog(10);
+		wipe.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
+		wipe.noteDelve(4, 6);
+		wipe.finishDoomSurface(20, false);
+		wipe.add(npcHit(40, "Doom of Mokhaiotl", 9, NpcID.DOM_BOSS, 50));
+		wipe.noteDelve(9, 6);
+		List<Fight> retry = wipe.summarize(40_000L, 10).getFights();
+		assertEquals(2, retry.size());
+		assertEquals(50, retry.get(0).damageDone());
+		assertEquals(100, retry.get(1).damageDone());
+
 		Fight earlier = null;
 		for (Fight fight : fights)
 		{
@@ -782,8 +941,8 @@ public class CombatLogTest
 		HitRecord second = attackHit(1, 8, 9L).withMeta(1, null, 9L, null, true, DamageSource.WEAPON, 0, 2);
 		List<AttackRow> rows = AttackRow.group(Arrays.asList(first, second));
 		assertEquals(1, rows.size());
-		assertEquals("12", CombatLogFormatter.attackLabel(rows.get(0)));
-		assertEquals("12", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals("(4+8) 12", CombatLogFormatter.attackLabel(rows.get(0)));
+		assertEquals("(4+8) 12", CombatLogFormatter.rowAmount(rows.get(0)));
 
 		HitRecord max = attackHit(2, 40, 10L).withMeta(2, null, 10L, null, true, DamageSource.WEAPON, 0, 3);
 		max = new HitRecord(max.getTimeMillis(), max.getTargetName(), max.getTargetKind(), max.getNpcId(), max.getNpcIndex(), max.getWeaponItemId(), max.getAmount(), HitKind.MAX_HIT, max.getTint(), max.getTick(), max.getDirection(), max.getSource(), true, 0, max.getAttackId(), max.getFightId(), max.getSequence());
@@ -801,7 +960,7 @@ public class CombatLogTest
 		assertEquals(1, claws.size());
 		assertTrue(claws.get(0).isSpecial());
 		assertEquals("Spec", CombatLogFormatter.rowKind(claws.get(0)));
-		assertEquals("31", CombatLogFormatter.rowAmount(claws.get(0)));
+		assertEquals("(18+9+4) 31", CombatLogFormatter.rowAmount(claws.get(0)));
 
 		List<AttackRow> daggers = AttackRow.group(Arrays.asList(
 			specHit(20, 1215, 12, false),
@@ -809,6 +968,20 @@ public class CombatLogTest
 		assertEquals(1, daggers.size());
 		assertFalse(daggers.get(0).isSpecial());
 		assertEquals("18", CombatLogFormatter.rowAmount(daggers.get(0)));
+
+		HitRecord first = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 1215, 20, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 1);
+		HitRecord second = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 1215, 30, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 2);
+		List<AttackRow> daggerSpec = AttackRow.group(Arrays.asList(first, second));
+		assertEquals(1, daggerSpec.size());
+		assertEquals("Spec", CombatLogFormatter.rowKind(daggerSpec.get(0)));
+		assertEquals("(20+30) 50", CombatLogFormatter.rowAmount(daggerSpec.get(0)));
+
+		HitRecord miss = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 0, HitKind.BLOCK, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 3);
+		HitRecord one = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 12, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 4);
+		HitRecord two = new HitRecord(20 * 600L, "Goblin", TargetKind.NPC, 301, 4, 23987, 10, HitKind.HIT, null, 20, DamageDirection.OUTGOING, DamageSource.WEAPON, true, 0, null, 4L, 5);
+		List<AttackRow> sweep = AttackRow.group(Arrays.asList(miss, one, two));
+		assertEquals(1, sweep.size());
+		assertEquals("(12+10) 22", CombatLogFormatter.rowAmount(sweep.get(0)));
 
 		List<AttackRow> separate = AttackRow.group(Arrays.asList(
 			specHit(30, 13652, 10, false),
@@ -995,6 +1168,16 @@ public class CombatLogTest
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.withMeta(1, null, null, 4151, false, DamageSource.WEAPON, 0, 0).getPrayerIcon());
 		assertNull(hit.asSource(DamageSource.THRALL, null, 10880).getWeaponItemId());
 		assertEquals(Integer.valueOf(SpriteID.Prayeron.PIETY), hit.asSource(DamageSource.THRALL, null, 10880).getPrayerIcon());
+
+		java.awt.image.BufferedImage greaterGhost = Thralls.image(hit.asSource(DamageSource.THRALL, null, 10880));
+		assertNotNull(greaterGhost);
+		assertEquals(20, greaterGhost.getWidth());
+		assertEquals(20, greaterGhost.getHeight());
+		java.awt.image.BufferedImage lesserSkeleton = Thralls.image(hit.asSource(DamageSource.THRALL, null, 10881));
+		assertNotNull(lesserSkeleton);
+		assertNotEquals(greaterGhost, lesserSkeleton);
+		assertEquals("Lesser skeletal thrall", Thralls.name(10881));
+		assertEquals(greaterGhost, Thralls.image(hit.asSource(DamageSource.THRALL, null, null)));
 	}
 
 	@Test
@@ -1329,6 +1512,11 @@ public class CombatLogTest
 		return null;
 	}
 
+	private static HitRecord doomHit(int tick, int weapon, int amount, boolean block)
+	{
+		return new HitRecord(tick * 600L, "Doom of Mokhaiotl", TargetKind.NPC, NpcID.DOM_BOSS, 4, weapon, amount, block ? HitKind.BLOCK : HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
 	private static HitRecord npcHit(int tick, String name, int index, int npcId, int amount)
 	{
 		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0);
@@ -1337,6 +1525,269 @@ public class CombatLogTest
 	private static HitRecord incoming(int tick, String name, int index, int npcId, int amount)
 	{
 		return new HitRecord(tick * 600L, name, TargetKind.NPC, npcId, index, null, amount, HitKind.HIT, null, tick, DamageDirection.INCOMING, DamageSource.WEAPON, false, 0, null, null, 0);
+	}
+
+	@Test
+	public void blowpipeHitsStayOnTheirOwnRows()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+		log.add(npcHit(1, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 17));
+		log.add(npcHit(3, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 14));
+		log.add(npcHit(5, "Gemstone Crab", 4, NpcID.GEMSTONE_CRAB, 14));
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(3, rows.size());
+		assertEquals(14, rows.get(0).getTotal());
+		assertEquals(14, rows.get(1).getTotal());
+		assertEquals(17, rows.get(2).getTotal());
+
+		CombatLog scythe = new CombatLog(10);
+		scythe.noteAttack(1, 4, "Guard", 22325, 5);
+		scythe.add(npcHit(1, "Guard", 4, 301, 12));
+		scythe.add(npcHit(1, "Guard", 4, 301, 14));
+		scythe.add(npcHit(1, "Guard", 4, 301, 10));
+		List<AttackRow> sweep = AttackRow.group(scythe.summarize(2_000L, 10).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(1, sweep.size());
+		assertEquals(36, sweep.get(0).getTotal());
+
+		CombatLog switched = new CombatLog(10);
+		switched.noteAttack(1, 4, "Gemstone Crab", 23987, 7);
+		switched.add(new HitRecord(2 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 23987, 30, HitKind.HIT, null, 2, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		switched.add(new HitRecord(4 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 12, HitKind.HIT, null, 4, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		List<AttackRow> weapons = AttackRow.group(switched.summarize(6_000L, 10).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, weapons.size());
+		assertEquals(12, weapons.get(0).getTotal());
+		assertEquals(Integer.valueOf(12926), weapons.get(0).first().getWeaponItemId());
+		assertEquals(30, weapons.get(1).getTotal());
+	}
+
+	@Test
+	public void blowpipeSpecHitStaysOnTheSpecSwing()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(1, 4, "Gemstone Crab", 12926, 2);
+		log.noteAttack(3, 4, "Gemstone Crab", 12926, 2);
+		log.markSpecSwing(3, 4);
+		log.add(new HitRecord(3 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 10, HitKind.HIT, null, 3, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+		log.add(new HitRecord(5 * 600L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 27, HitKind.HIT, null, 5, DamageDirection.OUTGOING, DamageSource.WEAPON, false, 0, null, null, 0));
+
+		Fight fight = log.summarize(8_000L, 10).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals(27, rows.get(0).getTotal());
+		assertTrue(rows.get(0).isSpecial());
+		assertEquals(10, rows.get(1).getTotal());
+		assertFalse(rows.get(1).isSpecial());
+	}
+
+	@Test
+	public void combatDummyShowsItsNameAndIcon()
+	{
+		HitRecord hit = new HitRecord(1_000L, "<col=00ffffff>Combat dummy", TargetKind.NPC, NpcID.POH_COMBAT_DUMMY_NPC, 4, null, 20, HitKind.HIT, null);
+		assertEquals("Combat dummy", hit.getTargetName());
+
+		CombatLog log = new CombatLog(10);
+		log.add(hit);
+		Fight fight = log.summarize(2_000L, 10).getFights().get(0);
+		assertEquals("Combat dummy", fight.getName());
+		assertEquals(Integer.valueOf(NpcID.POH_COMBAT_DUMMY_NPC), fight.getNpcId());
+
+		String hosted = "https://raw.githubusercontent.com/AdancitoPR/runelite-combatlog/npc-icons/icons/" + CombatDummy.ICON_ID + ".png";
+		assertEquals(hosted, MonsterIcons.iconUrl(NpcID.POH_COMBAT_DUMMY_NPC).toString());
+		assertEquals(hosted, MonsterIcons.iconUrl(NpcID.POH_COMBAT_DUMMY_UPGRADED_NPC).toString());
+		assertTrue(CombatDummy.named("Combat dummy"));
+		assertNull(new MonsterIcons().get(301));
+	}
+
+	@Test
+	public void halberdZeroAfterTheSpecIsNotAnotherHit()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.add(doomHit(11, 23987, 22, false));
+		log.add(doomHit(11, 23987, 32, false));
+		log.add(doomHit(15, 23987, 0, true));
+		log.add(doomHit(16, 12926, 0, true));
+
+		List<AttackRow> rows = AttackRow.group(log.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("0", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals(Integer.valueOf(12926), rows.get(0).first().getWeaponItemId());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(rows.get(1)));
+
+		assertTrue(StrayZero.drop(0, false, 23987, 12926));
+		assertFalse(StrayZero.drop(0, false, 12926, 12926));
+		assertFalse(StrayZero.drop(23, false, 23987, 12926));
+		assertFalse(StrayZero.drop(0, true, 23987, 12926));
+	}
+
+	@Test
+	public void meleePunishIsLoggedApartFromTheSpecial()
+	{
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.notePunish(4, 10, 24, DoomPunish.bonus(115));
+		log.add(doomHit(11, 23987, 22, false));
+		log.add(doomHit(11, 23987, 32, false));
+		log.add(doomHit(14, 23987, 23, false));
+		log.add(doomHit(15, 23987, 0, true));
+
+		Fight fight = log.summarize(20_000L, 20).getFights().get(0);
+		List<AttackRow> rows = AttackRow.group(fight.visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("(Punish) 23", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals(DamageSource.PUNISH, rows.get(0).first().getSource());
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(rows.get(1)));
+		assertEquals(22 + 32 + 23, fight.damageDone());
+
+		CombatLog sameTick = new CombatLog(10);
+		sameTick.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		sameTick.markSpecSwing(10, 4);
+		sameTick.notePunish(4, 10, 24, 23);
+		sameTick.add(doomHit(11, 23987, 22, false));
+		sameTick.add(doomHit(11, 23987, 32, false));
+		sameTick.add(doomHit(11, 23987, 23, false));
+		List<AttackRow> together = AttackRow.group(sameTick.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals("(Punish) 23", CombatLogFormatter.rowAmount(together.get(0)));
+		assertEquals("(22+32) 54", CombatLogFormatter.rowAmount(together.get(1)));
+
+		CombatLog only = new CombatLog(10);
+		only.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		only.markSpecSwing(10, 4);
+		only.notePunish(4, 10, 24, 23);
+		only.add(doomHit(11, 23987, 23, false));
+		AttackRow alone = AttackRow.group(only.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING)).get(0);
+		assertEquals("Spec", CombatLogFormatter.rowKind(alone));
+		assertEquals("23", CombatLogFormatter.rowAmount(alone));
+
+		assertEquals(23, DoomPunish.bonus(115));
+		assertEquals(23, DoomPunish.bonus(119));
+		assertEquals(22, DoomPunish.bonus(114));
+		assertEquals(0, DoomPunish.bonus(0));
+		assertTrue(DoomPunish.charging(AnimationID.DOM_BEAM_CHARGE));
+		assertTrue(DoomPunish.charging(AnimationID.DOM_BEAM_CHARGE_LOOP));
+		assertTrue(DoomPunish.cancelled(AnimationID.DOM_BEAM_CANCEL));
+		assertTrue(DoomPunish.fired(AnimationID.DOM_BEAM_FIRE));
+		assertFalse(DoomPunish.charging(AnimationID.DOM_BEAM_FIRE));
+	}
+
+	@Test
+	public void halberdPunishSplatsAreKeptWhenExperienceIgnoresThem()
+	{
+		int[] amounts = {17, 16, 16, 24};
+		boolean[] keep = OwnHits.keep(amounts, 33 * 4, false, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertTrue(keep[1]);
+		assertFalse(keep[2]);
+		assertFalse(keep[3]);
+		PunishHits.restore(keep, amounts, 24, new boolean[] {true, true, true, true});
+		assertFalse(keep[2]);
+		assertTrue(keep[3]);
+
+		CombatLog log = new CombatLog(10);
+		log.noteAttack(10, 4, "Doom of Mokhaiotl", 23987, 7);
+		log.markSpecSwing(10, 4);
+		log.notePunish(4, 10, 24, 24);
+		log.add(doomHit(11, 23987, 17, false));
+		log.add(doomHit(11, 23987, 16, false));
+		log.add(doomHit(11, 23987, 16, false).asSource(DamageSource.PUNISH, 23987, null));
+		log.add(doomHit(11, 23987, 24, false).asSource(DamageSource.PUNISH, 23987, null));
+
+		List<AttackRow> rows = AttackRow.group(log.summarize(20_000L, 20).getFights().get(0).visibleHits(DamageView.OUTGOING));
+		assertEquals(2, rows.size());
+		assertEquals("Dealt", CombatLogFormatter.rowKind(rows.get(0)));
+		assertEquals("(Punish) (16+24) 40", CombatLogFormatter.rowAmount(rows.get(0)));
+		assertEquals("Spec", CombatLogFormatter.rowKind(rows.get(1)));
+		assertEquals("(17+16) 33", CombatLogFormatter.rowAmount(rows.get(1)));
+		assertTrue(HitStyle.othersDamage(HitsplatID.DAMAGE_OTHER));
+		assertNull(HitStyle.fromHitsplatType(HitsplatID.DAMAGE_OTHER));
+	}
+
+	@Test
+	public void grubExplosionIsNotLoggedAsPunish()
+	{
+		// The spec is 12. The 99 and 100 are grubs exploding on the shield, and 15 is the bonus.
+		int[] amounts = {12, 99, 100, 15};
+		boolean[] keep = OwnHits.keep(amounts, 12 * 4, false, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+		assertFalse(keep[2]);
+		assertFalse(keep[3]);
+		PunishHits.restore(keep, amounts, 15, new boolean[] {true, true, true, true});
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+		assertFalse(keep[2]);
+		assertTrue(keep[3]);
+	}
+
+	@Test
+	public void gemstoneCrabKeepsTheBlowpipeHitAndDropsAnotherPlayersMax()
+	{
+		// 20 damage on the crab is 70 ranged experience. A 54 beside it is not yours.
+		int[] amounts = {20, 54};
+		boolean[] keep = OwnHits.keep(amounts, 70, true, false);
+		assertNotNull(keep);
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+		PunishHits.restore(keep, amounts, 24, new boolean[] {false, false});
+		assertTrue(keep[0]);
+		assertFalse(keep[1]);
+
+		int[] mixed = {17, 16, 54};
+		boolean[] mixedKeep = OwnHits.keep(mixed, 33 * 4, false, false);
+		assertNotNull(mixedKeep);
+		assertTrue(mixedKeep[0]);
+		assertTrue(mixedKeep[1]);
+		assertFalse(mixedKeep[2]);
+		PunishHits.restore(mixedKeep, mixed, 24, new boolean[] {true, true, false});
+		assertTrue(mixedKeep[0]);
+		assertTrue(mixedKeep[1]);
+		assertFalse(mixedKeep[2]);
+
+		HitRecord max = new HitRecord(1_000L, "Gemstone Crab", TargetKind.NPC, NpcID.GEMSTONE_CRAB, 4, 12926, 20, HitKind.MAX_HIT, null);
+		assertEquals("20 (Max hit)", CombatLogFormatter.rowAmount(AttackRow.group(Collections.singletonList(max)).get(0)));
+	}
+
+	@Test
+	public void experienceIdentifiesYourHitsWhenOtherPlayersHitTheSameTick()
+	{
+		boolean[] normal = OwnHits.keep(new int[] {12, 14, 10, 54}, 144, false, false);
+		assertNotNull(normal);
+		assertTrue(normal[0]);
+		assertTrue(normal[1]);
+		assertTrue(normal[2]);
+		assertFalse(normal[3]);
+
+		boolean[] single = OwnHits.keep(new int[] {20, 8, 12}, 80, false, false);
+		assertNotNull(single);
+		assertTrue(single[0]);
+		assertFalse(single[1]);
+		assertFalse(single[2]);
+
+		assertNull(OwnHits.keep(new int[] {54, 0}, 0, true, false));
+		assertNull(OwnHits.keep(new int[] {54, 0}, 0, false, false));
+
+		// 11 damage is 38.5 experience, reported as 38 or 39.
+		boolean[] odd = OwnHits.keep(new int[] {11, 54}, 39, true, false);
+		assertNotNull(odd);
+		assertTrue(odd[0]);
+		assertFalse(odd[1]);
+		boolean[] oddLow = OwnHits.keep(new int[] {54, 11}, 38, true, false);
+		assertNotNull(oddLow);
+		assertFalse(oddLow[0]);
+		assertTrue(oddLow[1]);
+
+		assertNull(OwnHits.keep(new int[] {20}, 65, false, true));
+		assertNull(OwnHits.keep(new int[] {54}, 70, true, false));
 	}
 
 	private static HitRecord specHit(int tick, int weapon, int amount, boolean block)

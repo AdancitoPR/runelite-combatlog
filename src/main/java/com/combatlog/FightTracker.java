@@ -33,16 +33,48 @@ final class FightTracker
 	private long nextAttackId = 1;
 	private int nextSequence;
 	private int lastTick;
+	/** Doom melee-charge window. Bonus hitsplats in it are the punish. */
+	private int punishNpc = -1;
+	private int punishStart = -1;
+	private int punishUntil = -1;
+	private int punishBonus;
 
+	@Nullable
 	HitRecord accept(HitRecord hit)
 	{
+		Fight fight = locate(hit);
+		if (fight == null)
+		{
+			return null;
+		}
 		if (hit.getTick() > lastTick)
 		{
 			lastTick = hit.getTick();
 		}
-		Fight fight = locate(hit);
-		Long attackId = hit.getAttackId() != null ? hit.getAttackId() : attackIdFor(fight, hit);
-		HitRecord stored = hit.withMeta(hit.getTick(), fight.getId(), attackId, hit.getWeaponItemId(), hit.isSpecial(), hit.getSource(), hit.getOverkill(), nextSequence++);
+		Long attackId = hit.getAttackId();
+		boolean special = hit.isSpecial();
+		if (attackId == null && isPunish(fight, hit))
+		{
+			hit = hit.asSource(DamageSource.PUNISH, null, hit.getSourceNpcId());
+			special = false;
+		}
+		if (attackId == null)
+		{
+			AttackSwing swing = selectSwing(fight, hit);
+			if (swing != null)
+			{
+				attackId = swing.getAttackId();
+				if (swing.isSpec() && hit.getSource() == DamageSource.WEAPON)
+				{
+					special = true;
+				}
+			}
+			else
+			{
+				attackId = attackIdFor(fight, hit);
+			}
+		}
+		HitRecord stored = hit.withMeta(hit.getTick(), fight.getId(), attackId, hit.getWeaponItemId(), special, hit.getSource(), hit.getOverkill(), nextSequence++);
 		fight.addHit(stored);
 		byId.put(fight.getId(), fight);
 		return stored;
@@ -112,6 +144,12 @@ final class FightTracker
 		{
 			return;
 		}
+		// From delve 5, one form despawning is a phase change. The delve log stays open.
+		if (doomDelve(fight) && DoomDelve.burrowJoins(fight.getDelve()))
+		{
+			open.remove(key);
+			return;
+		}
 		fight.closeKilled(tick);
 		detach(fight, key);
 	}
@@ -134,6 +172,11 @@ final class FightTracker
 		Fight fight = open.get(key);
 		if (fight == null || fight.isClosed())
 		{
+			return;
+		}
+		if (doomDelve(fight) && DoomDelve.burrowJoins(fight.getDelve()))
+		{
+			open.remove(key);
 			return;
 		}
 		fight.closeQuiet(fight.lastTick());
@@ -180,7 +223,8 @@ final class FightTracker
 		{
 			return;
 		}
-		// Burrow is its own log. Retagging the surface fight would split the delve.
+		// The burrowed index is joined onto this fight. Keep the surface id so the
+		// delve stays one log instead of becoming the burrowed NPC.
 		if (DoomDelve.surface(fight.getNpcId()) && DoomDelve.burrowed(npcId))
 		{
 			return;
@@ -217,20 +261,31 @@ final class FightTracker
 			return;
 		}
 		boolean first = fight.getDelve() == null;
-		if (first && DoomDelve.surface(fight.getNpcId()))
+		if (first && doomMonster(fight))
 		{
 			finishLowerSurfaces(level, fight);
+			sealOtherDelves(level);
 		}
 		fight.setDelve(level);
-		if (first && DoomDelve.surface(fight.getNpcId()) && fight.getDelve() != null)
+		if (!doomMonster(fight) || fight.getDelve() == null || fight.getDelve() != level)
 		{
-			surfaceByLevel.put(fight.getDelve(), fight);
+			return;
+		}
+		foldDelve(level);
+		if (!fights.contains(fight))
+		{
+			return;
+		}
+		Fight mapped = surfaceByLevel.get(level);
+		if (mapped == null || mapped.isClosed() || mapped == fight)
+		{
+			surfaceByLevel.put(level, fight);
 		}
 	}
 
 	/**
-	 * A later spawn of the same delve, including the shielded form, keeps
-	 * using the fight already open for that level.
+	 * A later spawn of the same delve, including the shield and the burrowed
+	 * form, keeps using the fight already open for that level.
 	 */
 	void joinDoomSurface(@Nullable Integer npcIndex, int level)
 	{
@@ -238,10 +293,28 @@ final class FightTracker
 		{
 			return;
 		}
-		Fight fight = surfaceByLevel.get(level);
-		if (fight == null || fight.isClosed())
+		Fight fight = delveFight(level);
+		if (fight == null)
+		{
+			fight = openDoomForLevel(level);
+		}
+		if (fight == null)
 		{
 			return;
+		}
+		// A wipe is sealed and stays its own log. A phase that only looked
+		// finished still belongs to this delve.
+		if (fight.isClosed())
+		{
+			if (fight.isSealed() || !DoomDelve.burrowJoins(level))
+			{
+				return;
+			}
+			fight.reopen();
+		}
+		if (fight.getDelve() == null || fight.getDelve() == level)
+		{
+			surfaceByLevel.put(level, fight);
 		}
 		open.put(npcKey(npcIndex), fight);
 		flushQueuedFor(fight, npcIndex);
@@ -307,12 +380,31 @@ final class FightTracker
 
 	private void finishLowerSurfaces(int level, Fight current)
 	{
-		List<Fight> earlier = new ArrayList<>();
-		for (Map.Entry<Integer, Fight> entry : surfaceByLevel.entrySet())
+		for (int lower = 1; lower < level; lower++)
 		{
-			if (entry.getKey() < level && entry.getValue() != current && !entry.getValue().isClosed())
+			if (DoomDelve.burrowJoins(lower))
 			{
-				earlier.add(entry.getValue());
+				foldDelve(lower);
+			}
+		}
+		List<Fight> earlier = new ArrayList<>();
+		for (Fight fight : new ArrayList<>(fights))
+		{
+			if (fight == current || fight.getDelve() == null || fight.getDelve() >= level || !doomMonster(fight))
+			{
+				continue;
+			}
+			if (!DoomDelve.burrowJoins(fight.getDelve()))
+			{
+				if (!fight.isClosed() && surfaceByLevel.get(fight.getDelve()) == fight)
+				{
+					earlier.add(fight);
+				}
+				continue;
+			}
+			if (!fight.isClosed())
+			{
+				earlier.add(fight);
 			}
 		}
 		for (Fight previous : earlier)
@@ -320,6 +412,35 @@ final class FightTracker
 			previous.closeKilled(previous.lastTick());
 			String key = previous.getNpcIndex() == null ? null : npcKey(previous.getNpcIndex());
 			detach(previous, key);
+		}
+	}
+
+	/**
+	 * Starting a new run at delve 1 ends any deeper log still on the list.
+	 * A deeper closed log is sealed so the next visit does not extend it.
+	 */
+	private void sealOtherDelves(int level)
+	{
+		if (level != 1)
+		{
+			return;
+		}
+		for (Fight fight : new ArrayList<>(fights))
+		{
+			if (fight.getDelve() == null || fight.getDelve() <= level || !doomMonster(fight) || fight.isSealed())
+			{
+				continue;
+			}
+			if (!fight.isClosed())
+			{
+				fight.closeQuiet(fight.lastTick());
+				String key = fight.getNpcIndex() == null ? null : npcKey(fight.getNpcIndex());
+				detach(fight, key);
+			}
+			else
+			{
+				fight.seal();
+			}
 		}
 	}
 
@@ -331,6 +452,151 @@ final class FightTracker
 			lastClosed.put(primaryKey, fight);
 		}
 		unmapSurface(fight);
+	}
+
+	private boolean doomMonster(Fight fight)
+	{
+		return DoomDelve.isDoom(fight.getNpcId()) || DoomDelve.DISPLAY_NAME.equals(fight.getName());
+	}
+
+	/** A delve log stays up while its forms come and go. */
+	private boolean doomDelve(Fight fight)
+	{
+		return fight.getDelve() != null && doomMonster(fight);
+	}
+
+	@Nullable
+	private Fight delveFight(int level)
+	{
+		Fight mapped = surfaceByLevel.get(level);
+		if (mapped != null && !mapped.isClosed())
+		{
+			return mapped;
+		}
+		Fight closed = mapped;
+		for (Fight fight : fights)
+		{
+			if (fight.getDelve() != null && fight.getDelve() == level && doomMonster(fight) && !fight.isClosed())
+			{
+				return fight;
+			}
+		}
+		if (closed != null)
+		{
+			return closed;
+		}
+		for (Fight fight : fights)
+		{
+			if (fight.getDelve() != null && fight.getDelve() == level && doomMonster(fight))
+			{
+				return fight;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * One log for each delve from 5 up. Pieces of an attempt that is still
+	 * open fold together no matter how long Doom was gone. A sealed wipe or
+	 * a delve already left behind stays its own entry.
+	 */
+	boolean foldDoomLevels()
+	{
+		List<Integer> levels = new ArrayList<>();
+		for (Fight fight : fights)
+		{
+			Integer delve = fight.getDelve();
+			if (delve != null && DoomDelve.burrowJoins(delve) && !levels.contains(delve))
+			{
+				levels.add(delve);
+			}
+		}
+		boolean changed = false;
+		for (int level : levels)
+		{
+			changed |= foldDelve(level);
+		}
+		return changed;
+	}
+
+	private boolean foldDelve(int level)
+	{
+		if (!DoomDelve.burrowJoins(level))
+		{
+			return false;
+		}
+		List<Fight> same = new ArrayList<>();
+		for (Fight candidate : new ArrayList<>(fights))
+		{
+			if (candidate.getDelve() != null && candidate.getDelve() == level && doomMonster(candidate) && !candidate.isSealed())
+			{
+				same.add(candidate);
+			}
+		}
+		if (same.size() < 2)
+		{
+			return false;
+		}
+		boolean changed = false;
+		Fight keeper = same.get(0);
+		for (int i = 1; i < same.size(); i++)
+		{
+			Fight extra = same.get(i);
+			changed = true;
+			if (extra.getStartTick() - keeper.lastTick() > 8)
+			{
+				keeper.notePhaseResume(extra.getStartTick());
+			}
+			keeper.takeFrom(extra);
+			for (Map.Entry<String, Fight> entry : new ArrayList<>(open.entrySet()))
+			{
+				if (entry.getValue() == extra)
+				{
+					open.put(entry.getKey(), keeper);
+				}
+			}
+			dropFight(extra);
+		}
+		if (!keeper.isClosed())
+		{
+			surfaceByLevel.put(level, keeper);
+		}
+		return changed;
+	}
+
+	private void dropFight(Fight fight)
+	{
+		fights.remove(fight);
+		byId.remove(fight.getId());
+		open.entrySet().removeIf(entry -> entry.getValue() == fight);
+		lastClosed.entrySet().removeIf(entry -> entry.getValue() == fight);
+		unmapSurface(fight);
+	}
+
+	/**
+	 * An open Doom fight for this delve. A fight whose delve is not set yet can
+	 * still take the level, but a different delve cannot.
+	 */
+	@Nullable
+	private Fight openDoomForLevel(int level)
+	{
+		Fight unset = null;
+		for (Fight fight : open.values())
+		{
+			if (fight.isClosed() || !DoomDelve.isDoom(fight.getNpcId()))
+			{
+				continue;
+			}
+			if (fight.getDelve() != null && fight.getDelve() == level)
+			{
+				return fight;
+			}
+			if (fight.getDelve() == null)
+			{
+				unset = fight;
+			}
+		}
+		return unset;
 	}
 
 	private void unmapSurface(Fight fight)
@@ -367,6 +633,10 @@ final class FightTracker
 		{
 			swing = new AttackSwing(swing.getTick(), swing.getNpcIndex(), swing.getName(), swing.getWeaponItemId(), swing.getSpeed(), nextAttackId++);
 		}
+		if (duplicateSwing(swing))
+		{
+			return;
+		}
 		if (swing.getTick() > lastTick)
 		{
 			lastTick = swing.getTick();
@@ -390,7 +660,14 @@ final class FightTracker
 		AttackSwing swing = latestSwing(npcIndex, tick);
 		if (swing != null && swing.getWeaponItemId() != null)
 		{
-			return swing.getWeaponItemId();
+			int gap = tick - swing.getTick();
+			// A hit before the next attack can land still belongs to that swing,
+			// even if the player has already equipped something else.
+			if (equipped == null || equipped.equals(swing.getWeaponItemId()) || gap < swing.getSpeed())
+			{
+				return swing.getWeaponItemId();
+			}
+			return equipped;
 		}
 		return equipped;
 	}
@@ -575,6 +852,12 @@ final class FightTracker
 			{
 				return only;
 			}
+			// Incoming damage with no attacker used to open a fight named "Taken"
+			// that never closed, because nothing can despawn. Leave it off the log.
+			if (hit.getDirection() == DamageDirection.INCOMING)
+			{
+				return null;
+			}
 		}
 
 		String key = key(hit);
@@ -636,19 +919,263 @@ final class FightTracker
 		}
 	}
 
+	/**
+	 * Doom is charging a melee beam from {@code startTick} through {@code untilTick}.
+	 * A hitsplat of {@code bonus} in that window is the punish, once the weapon
+	 * swing already has a different hit. A charge that is already open keeps its start.
+	 */
+	void notePunish(int npcIndex, int startTick, int untilTick, int bonus)
+	{
+		if (untilTick < 0)
+		{
+			clearPunish();
+			return;
+		}
+		int start = Math.max(0, startTick);
+		if (punishUntil < start)
+		{
+			punishStart = start;
+			punishNpc = npcIndex;
+		}
+		punishUntil = untilTick;
+		punishBonus = Math.max(0, bonus);
+	}
+
+	void clearPunish()
+	{
+		punishNpc = -1;
+		punishStart = -1;
+		punishUntil = -1;
+		punishBonus = 0;
+	}
+
+	void markSpecSwing(int tick, @Nullable Integer npcIndex)
+	{
+		for (Fight fight : fights)
+		{
+			fight.markSpec(tick, npcIndex);
+		}
+		for (int i = 0; i < queued.size(); i++)
+		{
+			AttackSwing swing = queued.get(i);
+			if (swing.getTick() == tick && (npcIndex == null ? swing.getNpcIndex() == null : npcIndex.equals(swing.getNpcIndex())))
+			{
+				queued.set(i, swing.withSpec());
+			}
+		}
+	}
+
+	private boolean duplicateSwing(AttackSwing swing)
+	{
+		Fight fight = swing.getNpcIndex() != null ? open.get(npcKey(swing.getNpcIndex())) : open.get(playerKey(swing.getName()));
+		if (fight != null)
+		{
+			for (AttackSwing existing : fight.getAttacks())
+			{
+				if (sameSwing(existing, swing))
+				{
+					return true;
+				}
+			}
+		}
+		for (AttackSwing existing : queued)
+		{
+			if (sameSwing(existing, swing))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean sameSwing(AttackSwing existing, AttackSwing swing)
+	{
+		if (existing.getTick() != swing.getTick())
+		{
+			return false;
+		}
+		if (swing.getNpcIndex() != null || existing.getNpcIndex() != null)
+		{
+			return Objects.equals(existing.getNpcIndex(), swing.getNpcIndex());
+		}
+		return existing.getName().equals(swing.getName());
+	}
+
+	/**
+	 * The newest swing this hit can belong to. A blowpipe dart is still in the
+	 * air when the next shot starts, so a hitsplat on that tick stays with the
+	 * earlier swing instead of the one that just began.
+	 */
+	@Nullable
+	/**
+	 * A hitsplat of the punish bonus while Doom is charging. It stays off the
+	 * weapon swing so the special's own hits are left as they landed.
+	 */
+	private boolean isPunish(Fight fight, HitRecord hit)
+	{
+		if (punishBonus <= 0 || hit.getTick() < punishStart || hit.getTick() > punishUntil)
+		{
+			return false;
+		}
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() != DamageSource.WEAPON || hit.isBlock() || hit.isSplash())
+		{
+			return false;
+		}
+		if (hit.getAmount() != punishBonus)
+		{
+			return false;
+		}
+		boolean doom = DoomDelve.surface(hit.getNpcId()) || (hit.getNpcIndex() != null && hit.getNpcIndex() == punishNpc);
+		if (!doom)
+		{
+			return false;
+		}
+		if (hasDifferentWeaponDamage(fight, hit))
+		{
+			return true;
+		}
+		AttackSwing swing = selectSwing(fight, hit);
+		int slots = swing == null ? 0 : splatsFor(swing);
+		return slots > 0 && bonusAlready(fight, swing) >= slots;
+	}
+
+	private boolean hasDifferentWeaponDamage(Fight fight, HitRecord hit)
+	{
+		for (HitRecord previous : fight.getHits())
+		{
+			if (previous.getDirection() != DamageDirection.OUTGOING || previous.isBlock() || previous.getAmount() <= 0)
+			{
+				continue;
+			}
+			if (previous.getTick() < punishStart || previous.getTick() > hit.getTick())
+			{
+				continue;
+			}
+			if (previous.getSource() != DamageSource.WEAPON && previous.getSource() != DamageSource.PUNISH)
+			{
+				continue;
+			}
+			if (previous.getAmount() != punishBonus)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private int bonusAlready(Fight fight, AttackSwing swing)
+	{
+		int count = 0;
+		for (HitRecord previous : fight.getHits())
+		{
+			if (previous.getAttackId() != null && previous.getAttackId() == swing.getAttackId() && previous.getAmount() == punishBonus && !previous.isBlock())
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private AttackSwing selectSwing(Fight fight, HitRecord hit)
+	{
+		if (hit.getDirection() != DamageDirection.OUTGOING || hit.getSource() == DamageSource.PUNISH)
+		{
+			return null;
+		}
+		// A missed tile of a special is not a new swing. It stays on that spec.
+		// A block never belongs to a normal swing, so it stays its own row.
+		if (hit.isBlock() || hit.getAmount() <= 0)
+		{
+			AttackSwing spec = openSpec(fight, hit);
+			if (spec != null || hit.isBlock())
+			{
+				return spec;
+			}
+		}
+		AttackSwing best = null;
+		for (AttackSwing swing : fight.getAttacks())
+		{
+			if (!openSwing(fight, hit, swing))
+			{
+				continue;
+			}
+			if (swing.getTick() == hit.getTick() && earlierSwingWaiting(fight, hit, swing))
+			{
+				continue;
+			}
+			if (best == null || swing.getTick() >= best.getTick())
+			{
+				best = swing;
+			}
+		}
+		return best;
+	}
+
+	private boolean earlierSwingWaiting(Fight fight, HitRecord hit, AttackSwing swing)
+	{
+		for (AttackSwing older : fight.getAttacks())
+		{
+			if (older.getTick() >= swing.getTick())
+			{
+				break;
+			}
+			if (openSwing(fight, hit, older))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean openSwing(Fight fight, HitRecord hit, AttackSwing swing)
+	{
+		int gap = hit.getTick() - swing.getTick();
+		if (gap < 0 || gap > swing.getSpeed() + 2)
+		{
+			return false;
+		}
+		Integer swingWeapon = swing.getWeaponItemId();
+		Integer hitWeapon = hit.getWeaponItemId();
+		if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
+		{
+			return false;
+		}
+		return claimed(fight, swing.getAttackId()) < splatsFor(swing);
+	}
+
+	@Nullable
+	private AttackSwing openSpec(Fight fight, HitRecord hit)
+	{
+		AttackSwing best = null;
+		for (AttackSwing swing : fight.getAttacks())
+		{
+			if (!swing.isSpec())
+			{
+				continue;
+			}
+			int gap = hit.getTick() - swing.getTick();
+			if (gap < 0 || gap > swing.getSpeed() + 2)
+			{
+				continue;
+			}
+			Integer swingWeapon = swing.getWeaponItemId();
+			Integer hitWeapon = hit.getWeaponItemId();
+			if (hitWeapon != null && swingWeapon != null && !hitWeapon.equals(swingWeapon))
+			{
+				continue;
+			}
+			if (best == null || swing.getTick() >= best.getTick())
+			{
+				best = swing;
+			}
+		}
+		return best;
+	}
+
 	private Long attackIdFor(Fight fight, HitRecord hit)
 	{
 		if (hit.getDirection() == DamageDirection.OUTGOING && !hit.isBlock())
 		{
-			for (int i = fight.getAttacks().size() - 1; i >= 0; i--)
-			{
-				AttackSwing swing = fight.getAttacks().get(i);
-				int gap = hit.getTick() - swing.getTick();
-				if (gap >= 0 && gap <= WEAPON_WINDOW)
-				{
-					return swing.getAttackId();
-				}
-			}
 			for (int i = fight.getHits().size() - 1; i >= 0; i--)
 			{
 				HitRecord previous = fight.getHits().get(i);
@@ -656,7 +1183,8 @@ final class FightTracker
 				{
 					continue;
 				}
-				if (previous.getTick() > 0 && previous.getTick() == hit.getTick() && Objects.equals(previous.getWeaponItemId(), hit.getWeaponItemId()) && previous.getAttackId() != null)
+				if (previous.getTick() > 0 && previous.getTick() == hit.getTick() && Objects.equals(previous.getWeaponItemId(), hit.getWeaponItemId()) && previous.getAttackId() != null
+					&& claimed(fight, previous.getAttackId()) < splatsFor(previous.getWeaponItemId()))
 				{
 					return previous.getAttackId();
 				}
@@ -664,6 +1192,53 @@ final class FightTracker
 			}
 		}
 		return nextAttackId++;
+	}
+
+	private static int claimed(Fight fight, long attackId)
+	{
+		int count = 0;
+		for (HitRecord previous : fight.getHits())
+		{
+			if (!previous.isBlock() && previous.getAmount() > 0 && previous.getAttackId() != null && previous.getAttackId() == attackId)
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private static int splatsFor(AttackSwing swing)
+	{
+		if (swing.isSpec())
+		{
+			int weaponId = swing.getWeaponItemId() == null ? 0 : swing.getWeaponItemId();
+			return Math.max(1, SpecWeapons.splats(weaponId));
+		}
+		return normalSplats(swing.getWeaponItemId());
+	}
+
+	private static int splatsFor(@Nullable Integer weaponId)
+	{
+		return Math.max(normalSplats(weaponId), weaponId == null ? 1 : SpecWeapons.splats(weaponId));
+	}
+
+	private static int normalSplats(@Nullable Integer weaponId)
+	{
+		if (weaponId == null || weaponId <= 0)
+		{
+			return 1;
+		}
+		// A scythe swing on a large monster lands three hitsplats. A normal
+		// blowpipe swing lands one, so later hits must not join that row.
+		if (weaponId == 22325 || weaponId == 25736 || weaponId == 25739)
+		{
+			return 3;
+		}
+		if (weaponId == 28997)
+		{
+			return 2;
+		}
+		return 1;
 	}
 
 	@Nullable

@@ -12,15 +12,22 @@ public final class AttackSwing
 	private final Integer weaponItemId;
 	private final int speed;
 	private final long attackId;
+	private final boolean spec;
 
 	public AttackSwing(int tick, @Nullable Integer npcIndex, String name, @Nullable Integer weaponItemId, int speed, long attackId)
 	{
+		this(tick, npcIndex, name, weaponItemId, speed, attackId, false);
+	}
+
+	private AttackSwing(int tick, @Nullable Integer npcIndex, String name, @Nullable Integer weaponItemId, int speed, long attackId, boolean spec)
+	{
 		this.tick = tick;
 		this.npcIndex = npcIndex;
-		this.name = name == null ? "" : name;
+		this.name = name == null ? "" : Names.plain(name);
 		this.weaponItemId = weaponItemId;
 		this.speed = speed > 0 ? speed : 4;
 		this.attackId = attackId;
+		this.spec = spec;
 	}
 
 	public int getTick()
@@ -55,8 +62,18 @@ public final class AttackSwing
 		return attackId;
 	}
 
+	public boolean isSpec()
+	{
+		return spec;
+	}
+
 	public AttackSwing withWeapon(@Nullable Integer weaponItemId, int speed)
 	{
-		return new AttackSwing(tick, npcIndex, name, weaponItemId, speed, attackId);
+		return new AttackSwing(tick, npcIndex, name, weaponItemId, speed, attackId, spec);
+	}
+
+	public AttackSwing withSpec()
+	{
+		return new AttackSwing(tick, npcIndex, name, weaponItemId, speed, attackId, true);
 	}
 }

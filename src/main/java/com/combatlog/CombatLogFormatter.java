@@ -67,20 +67,111 @@ public final class CombatLogFormatter
 
 	public static String rowAmount(AttackRow row)
 	{
-		if (row.isBlock() || row.isSplash())
+		if (row.isSplash())
+		{
+			return "0";
+		}
+		if (isPunish(row))
+		{
+			StringBuilder parts = new StringBuilder();
+			int shown = 0;
+			for (HitRecord hit : row.getHits())
+			{
+				if (hit.getAmount() <= 0)
+				{
+					continue;
+				}
+				if (shown > 0)
+				{
+					parts.append('+');
+				}
+				parts.append(hit.getAmount());
+				shown++;
+			}
+			if (shown >= 2)
+			{
+				return "(Punish) (" + parts + ") " + row.getTotal();
+			}
+			return "(Punish) " + row.getTotal();
+		}
+		String hits = specHits(row);
+		if (hits != null)
+		{
+			String text = hits + " " + row.getTotal();
+			if (maxHit(row))
+			{
+				text += " (Max hit)";
+			}
+			return text;
+		}
+		if (row.isBlock())
 		{
 			return "0";
 		}
 		String text = Integer.toString(row.getTotal());
+		if (maxHit(row))
+		{
+			text += " (Max hit)";
+		}
+		return text;
+	}
+
+	/**
+	 * The separate damaging hits of one special, such as {@code (20+30)}. A miss
+	 * is left out, and a single hitsplat has nothing to spell out.
+	 */
+	@Nullable
+	public static String specHits(AttackRow row)
+	{
+		if (!row.isSpecial() || row.getHits().size() < 2)
+		{
+			return null;
+		}
+		StringBuilder parts = new StringBuilder("(");
+		int shown = 0;
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.isBlock() || hit.getAmount() <= 0)
+			{
+				continue;
+			}
+			if (shown > 0)
+			{
+				parts.append('+');
+			}
+			parts.append(hit.getAmount());
+			shown++;
+		}
+		if (shown < 2)
+		{
+			return null;
+		}
+		parts.append(')');
+		return parts.toString();
+	}
+
+	private static boolean isPunish(AttackRow row)
+	{
+		for (HitRecord hit : row.getHits())
+		{
+			if (hit.getSource() == DamageSource.PUNISH)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean maxHit(AttackRow row)
+	{
 		for (HitRecord hit : row.getHits())
 		{
 			if (hit.getKind() == HitKind.MAX_HIT)
 			{
-				text += " (Max hit)";
-				break;
+				return true;
 			}
 		}
-		return text;
+		return false;
 	}
 
 	public static String amountLabel(HitRecord hit)
@@ -97,6 +188,10 @@ public final class CombatLogFormatter
 		if (hit.getKind() == HitKind.MAX_HIT)
 		{
 			text += " (Max hit)";
+		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			return "(Punish) " + text;
 		}
 		if (hit.getOverkill() > 0)
 		{
@@ -121,6 +216,10 @@ public final class CombatLogFormatter
 		if (status != null)
 		{
 			return status;
+		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			return hit.getDirection() == DamageDirection.INCOMING ? "Taken" : "Dealt";
 		}
 		if (row.isSpecial())
 		{
@@ -171,6 +270,8 @@ public final class CombatLogFormatter
 				return "corruption";
 			case DOOM:
 				return "doom";
+			case PUNISH:
+				return "";
 			case PRAYER:
 				return "prayer";
 			case SANITY:
@@ -184,15 +285,7 @@ public final class CombatLogFormatter
 	{
 		if (row.isSpecial())
 		{
-			String text = Integer.toString(row.getTotal());
-			for (HitRecord hit : row.getHits())
-			{
-				if (hit.getKind() == HitKind.MAX_HIT)
-				{
-					text += " (Max hit)";
-					break;
-				}
-			}
+			String text = rowAmount(row);
 			if (row.getOverkill() > 0)
 			{
 				text += " (" + row.getOverkill() + " overkill)";
@@ -294,6 +387,10 @@ public final class CombatLogFormatter
 		if (hit.getKind() == HitKind.BLOCK)
 		{
 			return "Block";
+		}
+		if (hit.getSource() == DamageSource.PUNISH)
+		{
+			return "Punish";
 		}
 		return "Hit";
 	}

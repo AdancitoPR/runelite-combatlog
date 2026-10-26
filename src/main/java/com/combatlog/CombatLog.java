@@ -38,8 +38,12 @@ public class CombatLog
 	{
 		synchronized (lock)
 		{
-			version++;
 			HitRecord stored = fights.accept(record);
+			if (stored == null)
+			{
+				return;
+			}
+			version++;
 			List<HitRecord> next = new ArrayList<>(Math.min(hits.size() + 1, maxEntries));
 			next.add(stored);
 			int keep = maxEntries - 1;
@@ -151,6 +155,19 @@ public class CombatLog
 		}
 	}
 
+	public boolean foldDoom()
+	{
+		synchronized (lock)
+		{
+			if (!fights.foldDoomLevels())
+			{
+				return false;
+			}
+			version++;
+			return true;
+		}
+	}
+
 	public void finishDoomSurface(int tick, boolean killed)
 	{
 		synchronized (lock)
@@ -166,6 +183,38 @@ public class CombatLog
 		{
 			version++;
 			fights.noteAttack(new AttackSwing(tick, npcIndex, name, weaponItemId, speed, 0));
+		}
+	}
+
+	/**
+	 * Doom's melee charge is open from {@code startTick} through {@code untilTick}.
+	 * Hitsplats of {@code bonus} in that window are the punish.
+	 */
+	public void notePunish(int npcIndex, int startTick, int untilTick, int bonus)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.notePunish(npcIndex, startTick, untilTick, bonus);
+		}
+	}
+
+	public void clearPunish()
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.clearPunish();
+		}
+	}
+
+	/** The attack on this tick spent special attack energy. Its hitsplats are the spec. */
+	public void markSpecSwing(int tick, @Nullable Integer npcIndex)
+	{
+		synchronized (lock)
+		{
+			version++;
+			fights.markSpecSwing(tick, npcIndex);
 		}
 	}
 

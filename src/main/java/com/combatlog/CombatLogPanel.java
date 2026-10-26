@@ -3,14 +3,25 @@ package com.combatlog;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.font.FontRenderContext;
+import java.awt.font.GlyphVector;
+import java.awt.font.LineMetrics;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.ZoneId;
@@ -60,6 +71,19 @@ class CombatLogPanel extends PluginPanel
 	private static final Color CHOICE_SELECTED = new Color(68, 68, 68);
 	private static final Color CHOICE_SELECTED_HOVER = new Color(86, 86, 86);
 	private static final Color CHOICE_SELECTED_PRESSED = new Color(50, 50, 50);
+	/** Padding around the empty state and the fight notes. */
+	private static final int TEXT_INSET = 8;
+	/**
+	 * Room for wrapping copy inside the sidebar, after the plugin border and {@link #TEXT_INSET}.
+	 * The scrollbar sits beside this width.
+	 */
+	private static final int SIDEBAR_TEXT_ROOM = PluginPanel.PANEL_WIDTH
+		- (PluginPanel.BORDER_OFFSET + TEXT_INSET) * 2;
+	/**
+	 * Swing's HTML renderer maps a CSS pixel to 1.3 layout pixels. The wrap width is the
+	 * sidebar room divided by that, or the line runs under the scrollbar.
+	 */
+	private static final int WRAPPED_TEXT_WIDTH = (SIDEBAR_TEXT_ROOM - 8) * 10 / 13;
 
 	private final CombatLog combatLog;
 	private final CombatLogConfig config;
@@ -153,7 +177,7 @@ class CombatLogPanel extends PluginPanel
 
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		body.setBorder(new EmptyBorder(8, 8, 8, 8));
+		body.setBorder(new EmptyBorder(TEXT_INSET, TEXT_INSET, TEXT_INSET, TEXT_INSET));
 
 		emptyLabel.setFont(uiFont());
 		emptyLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
@@ -161,10 +185,9 @@ class CombatLogPanel extends PluginPanel
 		emptyLabel.setOpaque(true);
 		emptyLabel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		emptyLabel.setVerticalAlignment(SwingConstants.TOP);
-		emptyLabel.setText("<html><body style='width:190px'>No hits yet. Attack something and the damage you deal shows up here in red."
+		emptyLabel.setText("<html><body style='width:" + WRAPPED_TEXT_WIDTH + "px'>No hits yet. Attack something and the damage you deal shows up here in red."
 			+ "<br><br>Damage you take is logged too, including poison, venom, burn, and bleed. Other players' hits stay off this log.</body></html>");
-		int emptyHeight = emptyLabel.getPreferredSize().height;
-		emptyLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, emptyHeight));
+		emptyLabel.setMaximumSize(emptyLabel.getPreferredSize());
 		body.add(emptyLabel);
 
 		hitsPanel.setLayout(new BoxLayout(hitsPanel, BoxLayout.Y_AXIS));
@@ -344,15 +367,12 @@ class CombatLogPanel extends PluginPanel
 		JPanel row = new JPanel(new BorderLayout(8, 0));
 		row.setOpaque(false);
 		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
 		JLabel name = new JLabel(label);
 		name.setFont(uiFont());
 		name.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		JLabel amount = new JLabel(value, SwingConstants.RIGHT);
-		amount.setFont(boldFont(18f));
-		amount.setForeground(color);
 		row.add(name, BorderLayout.WEST);
-		row.add(amount, BorderLayout.EAST);
+		row.add(new TightAmount(value, boldFont(18f), color), BorderLayout.EAST);
+		fitRow(row);
 		totalsBox.add(row);
 	}
 
@@ -571,7 +591,7 @@ class CombatLogPanel extends PluginPanel
 		Map<String, List<Fight>> groups = new LinkedHashMap<>();
 		for (Fight fight : ordered)
 		{
-			if (!fight.isClosed())
+			if (!fight.isClosed() && !DoomDelve.named(fight.getName()) && !DoomDelve.isDoom(fight.getNpcId()))
 			{
 				continue;
 			}
@@ -607,7 +627,9 @@ class CombatLogPanel extends PluginPanel
 		Set<String> shown = new HashSet<>();
 		for (Fight fight : ordered)
 		{
-			if (!fight.isClosed())
+			String key = groupKey(fight);
+			List<Fight> grouped = groups.get(key);
+			if (!fight.isClosed() && (grouped == null || !grouped.contains(fight)))
 			{
 				boolean open = expanded.containsKey(fight.getId())
 					? Boolean.TRUE.equals(expanded.get(fight.getId()))
@@ -616,7 +638,6 @@ class CombatLogPanel extends PluginPanel
 				hitsPanel.add(groupSeparator());
 				continue;
 			}
-			String key = groupKey(fight);
 			if (!shown.add(key))
 			{
 				continue;
@@ -751,7 +772,7 @@ class CombatLogPanel extends PluginPanel
 		String footer = FightSummary.footer(fight, snapshot.getNowTick(), snapshot.getView());
 		if (footer != null)
 		{
-			block.add(noteLabel(footer, true));
+			block.add(noteLabel(footer));
 		}
 		block.add(Box.createVerticalStrut(2));
 		installDeleteMenu(block, fight);
@@ -782,7 +803,7 @@ class CombatLogPanel extends PluginPanel
 		Fight first = group.get(0);
 		HitRecord sample = first.getHits().isEmpty() ? null : first.getHits().get(0);
 		JLabel icon = targetIcon(first, sample);
-		JLabel name = new JLabel(first.getName());
+		JLabel name = new JLabel(DoomDelve.displayName(first.getName(), first.getNpcId()));
 		name.setFont(uiFont());
 		name.setForeground(first.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
 
@@ -843,25 +864,26 @@ class CombatLogPanel extends PluginPanel
 		String summary = FightSummary.groupLine(group);
 		if (summary != null && snapshot.getView() != DamageView.INCOMING)
 		{
-			block.add(noteLabel(summary, false));
+			block.add(noteLabel(summary));
 		}
 		fitRow(block);
 		return block;
 	}
 
-	private static JLabel noteLabel(String text, boolean nowrap)
+	private static JLabel noteLabel(String text)
 	{
-		String style = nowrap ? "width:209px;white-space:nowrap" : "width:190px";
-		JLabel label = new JLabel("<html><body style='" + style + "'>" + text + "</body></html>");
+		JLabel label = new JLabel("<html><body style='width:" + WRAPPED_TEXT_WIDTH + "px'>" + text + "</body></html>");
 		label.setFont(uiFont());
 		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		label.setAlignmentX(LEFT_ALIGNMENT);
+		Dimension size = label.getPreferredSize();
+		label.setMaximumSize(new Dimension(size.width, size.height));
 		return label;
 	}
 
 	private static String groupKey(Fight fight)
 	{
-		return fight.getKind() + "\0" + fight.getName();
+		return fight.getKind() + "\0" + DoomDelve.displayName(fight.getName(), fight.getNpcId());
 	}
 
 	private void installDeleteMenu(Component component, Fight fight)
@@ -924,7 +946,7 @@ class CombatLogPanel extends PluginPanel
 
 		HitRecord sample = fight.getHits().isEmpty() ? null : fight.getHits().get(0);
 		JLabel icon = targetIcon(fight, sample);
-		JLabel name = new JLabel(fight.getName());
+		JLabel name = new JLabel(DoomDelve.displayName(fight.getName(), fight.getNpcId()));
 		name.setFont(uiFont());
 		name.setForeground(fight.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
 
@@ -1002,7 +1024,8 @@ class CombatLogPanel extends PluginPanel
 	{
 		HitRecord hit = attack.first();
 		boolean incoming = hit.getDirection() == DamageDirection.INCOMING;
-		boolean special = attack.isSpecial();
+		boolean punish = hit.getSource() == DamageSource.PUNISH;
+		boolean special = attack.isSpecial() && !punish;
 		JPanel row = new JPanel(new BorderLayout(6, 0));
 		row.setBackground(index % 2 == 0 ? ColorScheme.DARKER_GRAY_COLOR : ROW_ALT);
 		row.setBorder(new EmptyBorder(3, 6, 3, 6));
@@ -1018,7 +1041,7 @@ class CombatLogPanel extends PluginPanel
 		JPanel lead = new JPanel(new BorderLayout(6, 0));
 		lead.setOpaque(false);
 		lead.add(kind, BorderLayout.WEST);
-		if (!thrall && !status && (hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
+		if (!status && !punish && (thrall || hit.getWeaponItemId() != null || hit.getPrayerIcon() != null || hit.getAttackStyleIcon() != null))
 		{
 			lead.add(dealtIcons(hit), BorderLayout.EAST);
 		}
@@ -1029,10 +1052,6 @@ class CombatLogPanel extends PluginPanel
 
 		JPanel figures = new JPanel(new BorderLayout(4, 0));
 		figures.setOpaque(false);
-		if (thrall)
-		{
-			figures.add(thrallSlot(hit), BorderLayout.WEST);
-		}
 		figures.add(amountFigure(attack, hit), BorderLayout.CENTER);
 
 		row.add(lead, BorderLayout.WEST);
@@ -1053,12 +1072,13 @@ class CombatLogPanel extends PluginPanel
 	private JComponent amountFigure(AttackRow attack, HitRecord hit)
 	{
 		BufferedImage splat = hitSplat(attack);
-		if (splat == null)
+		if (splat == null || CombatLogFormatter.specHits(attack) != null || hit.getSource() == DamageSource.PUNISH)
 		{
 			JLabel amount = new JLabel(CombatLogFormatter.rowAmount(attack), SwingConstants.RIGHT);
 			amount.setFont(uiFont());
-			amount.setForeground(DamageColors.forHit(hit));
+			amount.setForeground(attack.isSpecial() && hit.getSource() != DamageSource.PUNISH ? DamageColors.SPEC : DamageColors.forHit(hit));
 			holdWidth(amount);
+			tipWhenClipped(amount, CombatLogFormatter.rowAmount(attack));
 			return amount;
 		}
 		JLabel icon = new JLabel(new ImageIcon(splat), SwingConstants.RIGHT);
@@ -1069,7 +1089,7 @@ class CombatLogPanel extends PluginPanel
 		}
 		JLabel note = new JLabel("(Max hit)");
 		note.setFont(uiFont());
-		note.setForeground(DamageColors.forHit(hit));
+		note.setForeground(attack.isSpecial() ? DamageColors.SPEC : DamageColors.forHit(hit));
 		JPanel both = new JPanel(new BorderLayout(4, 0));
 		both.setOpaque(false);
 		both.add(icon, BorderLayout.WEST);
@@ -1179,7 +1199,22 @@ class CombatLogPanel extends PluginPanel
 			}
 			return icon;
 		}
-		return sample == null ? iconLabel(MonsterIcons.SIZE) : monsterIcon(sample);
+		Integer id = fight.getNpcId();
+		if (id == null && sample != null)
+		{
+			id = sample.getNpcId();
+		}
+		BufferedImage image = id == null || monsterIcons == null ? null : monsterIcons.get(id);
+		if (image == null && id == null && monsterIcons != null && CombatDummy.named(fight.getName()))
+		{
+			image = monsterIcons.get(CombatDummy.ICON_ID);
+		}
+		JLabel icon = iconLabel(MonsterIcons.SIZE);
+		if (image != null)
+		{
+			icon.setIcon(new ImageIcon(image));
+		}
+		return icon;
 	}
 
 	private static JLabel iconLabel(int size)
@@ -1195,43 +1230,23 @@ class CombatLogPanel extends PluginPanel
 		return icon;
 	}
 
-	private JLabel monsterIcon(HitRecord hit)
-	{
-		JLabel icon = new JLabel();
-		icon.setOpaque(false);
-		icon.setHorizontalAlignment(SwingConstants.CENTER);
-		icon.setVerticalAlignment(SwingConstants.CENTER);
-		Dimension size = new Dimension(MonsterIcons.SIZE, MonsterIcons.SIZE);
-		icon.setPreferredSize(size);
-		icon.setMinimumSize(size);
-		icon.setMaximumSize(size);
-		if (hit.getNpcId() != null)
-		{
-			BufferedImage image = monsterIcons.get(hit.getNpcId());
-			if (image != null)
-			{
-				icon.setIcon(new ImageIcon(image));
-			}
-		}
-		return icon;
-	}
-
 	private JLabel thrallSlot(HitRecord hit)
 	{
 		JLabel icon = new JLabel();
 		icon.setOpaque(false);
 		icon.setHorizontalAlignment(SwingConstants.CENTER);
 		icon.setVerticalAlignment(SwingConstants.CENTER);
-		Dimension size = new Dimension(MonsterIcons.SIZE, MonsterIcons.SIZE);
+		Dimension size = new Dimension(WeaponIcons.SIZE, WeaponIcons.SIZE);
 		icon.setPreferredSize(size);
 		icon.setMinimumSize(size);
 		icon.setMaximumSize(size);
-		BufferedImage image = monsterIcons.get(Thralls.iconId(hit));
+		BufferedImage image = Thralls.image(hit);
 		if (image != null)
 		{
 			icon.setIcon(new ImageIcon(image));
 		}
-		icon.setToolTipText("Thrall");
+		int id = Thralls.iconId(hit);
+		icon.setToolTipText(Thralls.maxHit(id) > 0 ? Thralls.name(id) : Thralls.name(Thralls.FALLBACK_NPC_ID));
 		return icon;
 	}
 
@@ -1275,7 +1290,11 @@ class CombatLogPanel extends PluginPanel
 		JPanel icons = new JPanel();
 		icons.setLayout(new BoxLayout(icons, BoxLayout.X_AXIS));
 		icons.setOpaque(false);
-		if (hit.getWeaponItemId() != null)
+		if (hit.getSource() == DamageSource.THRALL)
+		{
+			icons.add(thrallSlot(hit));
+		}
+		else if (hit.getWeaponItemId() != null)
 		{
 			icons.add(weaponSlot(hit));
 		}
@@ -1283,7 +1302,7 @@ class CombatLogPanel extends PluginPanel
 		{
 			icons.add(attackStyleSlot(hit));
 		}
-		if (hit.getPrayerIcon() != null)
+		if (hit.getSource() != DamageSource.THRALL && hit.getPrayerIcon() != null)
 		{
 			if (icons.getComponentCount() > 0)
 			{
@@ -1405,10 +1424,128 @@ class CombatLogPanel extends PluginPanel
 		label.setPreferredSize(size);
 	}
 
+	/**
+	 * A long spec total is clipped by the sidebar. Hovering the number shows the full text.
+	 */
+	private static void tipWhenClipped(JLabel label, String full)
+	{
+		label.addComponentListener(new ComponentAdapter()
+		{
+			@Override
+			public void componentResized(ComponentEvent event)
+			{
+				refreshAmountTip(label, full);
+			}
+		});
+		label.addHierarchyListener(event ->
+		{
+			if (label.isShowing())
+			{
+				SwingUtilities.invokeLater(() -> refreshAmountTip(label, full));
+			}
+		});
+	}
+
+	private static void refreshAmountTip(JLabel label, String full)
+	{
+		label.setToolTipText(amountClipped(label) ? full : null);
+	}
+
+	private static boolean amountClipped(JLabel label)
+	{
+		int needed = label.getPreferredSize().width;
+		if (label.getWidth() > 0 && label.getWidth() < needed)
+		{
+			return true;
+		}
+		Container viewport = label.getParent();
+		while (viewport != null && !(viewport instanceof JViewport))
+		{
+			viewport = viewport.getParent();
+		}
+		if (viewport == null || viewport.getWidth() <= 0 || !label.isShowing())
+		{
+			return false;
+		}
+		int x = SwingUtilities.convertPoint(label, 0, 0, viewport).x;
+		return x < 0 || x + needed > viewport.getWidth();
+	}
+
 	private static void fitRow(JPanel row)
 	{
 		int height = row.getPreferredSize().height;
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+	}
+
+	/**
+	 * The bold font leaves a wide gap before 2, so 162 and 362 paint as "16 2" and "36 2".
+	 * Later glyphs are pulled left until the ink gap matches the other digits.
+	 */
+	static final class TightAmount extends JComponent
+	{
+		private static final float DIGIT_GAP = 2.25f;
+		private static final FontRenderContext RENDER = new FontRenderContext(null, true, true);
+
+		private final String text;
+		private final Font amountFont;
+
+		TightAmount(String text, Font font, Color color)
+		{
+			this.text = text == null ? "" : text;
+			this.amountFont = font;
+			setFont(font);
+			setForeground(color);
+			setOpaque(false);
+			GlyphVector glyphs = layout(RENDER);
+			Rectangle2D ink = glyphs.getVisualBounds();
+			LineMetrics metrics = font.getLineMetrics(this.text.isEmpty() ? "0" : this.text, RENDER);
+			int width = Math.max(1, (int) Math.ceil(ink.getWidth()) + 1);
+			int height = Math.max(1, (int) Math.ceil(metrics.getAscent() + metrics.getDescent()));
+			Dimension size = new Dimension(width, height);
+			setPreferredSize(size);
+			setMinimumSize(size);
+			setMaximumSize(size);
+		}
+
+		@Override
+		protected void paintComponent(Graphics graphics)
+		{
+			Graphics2D g = (Graphics2D) graphics.create();
+			g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+			g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+			g.setFont(amountFont);
+			g.setColor(getForeground());
+			GlyphVector glyphs = layout(g.getFontRenderContext());
+			Rectangle2D ink = glyphs.getVisualBounds();
+			FontMetrics metrics = g.getFontMetrics(amountFont);
+			g.drawGlyphVector(glyphs, (float) -ink.getX(), metrics.getAscent());
+			g.dispose();
+		}
+
+		private GlyphVector layout(FontRenderContext context)
+		{
+			GlyphVector glyphs = amountFont.createGlyphVector(context, text);
+			float shift = 0f;
+			float previousEnd = Float.NaN;
+			for (int i = 0; i < glyphs.getNumGlyphs(); i++)
+			{
+				Point2D position = glyphs.getGlyphPosition(i);
+				glyphs.setGlyphPosition(i, new Point2D.Float((float) position.getX() + shift, (float) position.getY()));
+				Rectangle2D visual = glyphs.getGlyphVisualBounds(i).getBounds2D();
+				if (!Float.isNaN(previousEnd))
+				{
+					float gap = (float) visual.getX() - previousEnd;
+					if (gap > DIGIT_GAP)
+					{
+						shift -= gap - DIGIT_GAP;
+						glyphs.setGlyphPosition(i, new Point2D.Float((float) position.getX() + shift, (float) position.getY()));
+						visual = glyphs.getGlyphVisualBounds(i).getBounds2D();
+					}
+				}
+				previousEnd = (float) (visual.getX() + visual.getWidth());
+			}
+			return glyphs;
+		}
 	}
 
 	private static void styleButton(JButton button)
