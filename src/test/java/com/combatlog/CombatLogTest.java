@@ -723,6 +723,8 @@ public class CombatLogTest
 		assertTrue(DoomDelve.surface(NpcID.DOM_BOSS_SHIELDED));
 		assertFalse(DoomDelve.surface(NpcID.DOM_BOSS_BURROWED));
 		assertTrue(DoomDelve.burrowed(NpcID.DOM_BOSS_BURROWED));
+		assertFalse(DoomDelve.burrowJoins(4));
+		assertTrue(DoomDelve.burrowJoins(5));
 
 		CombatLog log = new CombatLog(10);
 		log.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
@@ -759,9 +761,77 @@ public class CombatLogTest
 
 		log.add(npcHit(70, "Doom of Mokhaiotl", 20, NpcID.DOM_BOSS, 10));
 		log.noteDelve(20, 5);
-		fights = log.summarize(70_000L, 10).getFights();
+		log.noteAttack(70, 20, "Doom of Mokhaiotl", 20997, 4);
+		log.resumeDoomSurface(90);
+		log.joinDoomSurface(21, 5);
+		log.add(npcHit(90, "Doom of Mokhaiotl (Burrowed)", 21, NpcID.DOM_BOSS_BURROWED, 30));
+		log.noteDelve(21, 5);
+		log.resumeDoomSurface(110);
+		log.joinDoomSurface(22, 5);
+		log.add(npcHit(110, "Doom of Mokhaiotl", 22, NpcID.DOM_BOSS, 8));
+		log.noteDelve(22, 5);
+		fights = log.summarize(110_000L, 10).getFights();
 		assertEquals(Integer.valueOf(5), fights.get(0).getDelve());
-		assertEquals(10, fights.get(0).damageDone());
+		assertEquals(48, fights.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", fights.get(0).getName());
+		assertEquals(Integer.valueOf(NpcID.DOM_BOSS), fights.get(0).getNpcId());
+		assertEquals(0, FightSummary.lostTicks(fights.get(0)));
+
+		CombatLog carFirst = new CombatLog(10);
+		carFirst.add(npcHit(1, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 18));
+		carFirst.noteDelve(12, 5);
+		carFirst.joinDoomSurface(4, 5);
+		carFirst.add(npcHit(8, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 40));
+		carFirst.noteDelve(4, 5);
+		carFirst.joinDoomSurface(9, 5);
+		carFirst.add(npcHit(16, "Doom of Mokhaiotl", 9, NpcID.DOM_BOSS_SHIELDED, 7));
+		List<Fight> carFights = carFirst.summarize(16_000L, 10).getFights();
+		assertEquals(1, carFights.size());
+		assertEquals("Doom of Mokhaiotl", carFights.get(0).getName());
+		assertEquals(Integer.valueOf(5), carFights.get(0).getDelve());
+		assertEquals(65, carFights.get(0).damageDone());
+
+		CombatLog split = new CombatLog(10);
+		split.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
+		split.noteDelve(4, 5);
+		split.finishDoomSurface(40, true);
+		split.add(npcHit(50, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 58));
+		split.noteDelve(12, 5);
+		List<Fight> together = split.summarize(50_000L, 10).getFights();
+		assertEquals(1, together.size());
+		assertEquals(Integer.valueOf(5), together.get(0).getDelve());
+		assertEquals(158, together.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", together.get(0).getName());
+
+		split.joinDoomSurface(12, 5);
+		split.closeLife(12, 60);
+		together = split.summarize(60_000L, 10).getFights();
+		assertEquals(1, together.size());
+		assertFalse(together.get(0).isClosed());
+
+		CombatLog delveSix = new CombatLog(10);
+		delveSix.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 482));
+		delveSix.noteDelve(4, 6);
+		delveSix.finishDoomSurface(80, true);
+		delveSix.add(npcHit(100, "Doom of Mokhaiotl (Burrowed)", 12, NpcID.DOM_BOSS_BURROWED, 295));
+		delveSix.noteDelve(12, 6);
+		List<Fight> oneDelve = delveSix.summarize(100_000L, 10).getFights();
+		assertEquals(1, oneDelve.size());
+		assertEquals(Integer.valueOf(6), oneDelve.get(0).getDelve());
+		assertEquals(777, oneDelve.get(0).damageDone());
+		assertEquals("Doom of Mokhaiotl", oneDelve.get(0).getName());
+
+		CombatLog wipe = new CombatLog(10);
+		wipe.add(npcHit(1, "Doom of Mokhaiotl", 4, NpcID.DOM_BOSS, 100));
+		wipe.noteDelve(4, 6);
+		wipe.finishDoomSurface(20, false);
+		wipe.add(npcHit(40, "Doom of Mokhaiotl", 9, NpcID.DOM_BOSS, 50));
+		wipe.noteDelve(9, 6);
+		List<Fight> retry = wipe.summarize(40_000L, 10).getFights();
+		assertEquals(2, retry.size());
+		assertEquals(50, retry.get(0).damageDone());
+		assertEquals(100, retry.get(1).damageDone());
+
 		Fight earlier = null;
 		for (Fight fight : fights)
 		{

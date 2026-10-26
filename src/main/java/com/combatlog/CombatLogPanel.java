@@ -586,7 +586,7 @@ class CombatLogPanel extends PluginPanel
 		Map<String, List<Fight>> groups = new LinkedHashMap<>();
 		for (Fight fight : ordered)
 		{
-			if (!fight.isClosed())
+			if (!fight.isClosed() && !DoomDelve.named(fight.getName()) && !DoomDelve.isDoom(fight.getNpcId()))
 			{
 				continue;
 			}
@@ -622,7 +622,9 @@ class CombatLogPanel extends PluginPanel
 		Set<String> shown = new HashSet<>();
 		for (Fight fight : ordered)
 		{
-			if (!fight.isClosed())
+			String key = groupKey(fight);
+			List<Fight> grouped = groups.get(key);
+			if (!fight.isClosed() && (grouped == null || !grouped.contains(fight)))
 			{
 				boolean open = expanded.containsKey(fight.getId())
 					? Boolean.TRUE.equals(expanded.get(fight.getId()))
@@ -631,7 +633,6 @@ class CombatLogPanel extends PluginPanel
 				hitsPanel.add(groupSeparator());
 				continue;
 			}
-			String key = groupKey(fight);
 			if (!shown.add(key))
 			{
 				continue;
@@ -797,7 +798,7 @@ class CombatLogPanel extends PluginPanel
 		Fight first = group.get(0);
 		HitRecord sample = first.getHits().isEmpty() ? null : first.getHits().get(0);
 		JLabel icon = targetIcon(first, sample);
-		JLabel name = new JLabel(first.getName());
+		JLabel name = new JLabel(DoomDelve.displayName(first.getName(), first.getNpcId()));
 		name.setFont(uiFont());
 		name.setForeground(first.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
 
@@ -877,7 +878,7 @@ class CombatLogPanel extends PluginPanel
 
 	private static String groupKey(Fight fight)
 	{
-		return fight.getKind() + "\0" + fight.getName();
+		return fight.getKind() + "\0" + DoomDelve.displayName(fight.getName(), fight.getNpcId());
 	}
 
 	private void installDeleteMenu(Component component, Fight fight)
@@ -940,7 +941,7 @@ class CombatLogPanel extends PluginPanel
 
 		HitRecord sample = fight.getHits().isEmpty() ? null : fight.getHits().get(0);
 		JLabel icon = targetIcon(fight, sample);
-		JLabel name = new JLabel(fight.getName());
+		JLabel name = new JLabel(DoomDelve.displayName(fight.getName(), fight.getNpcId()));
 		name.setFont(uiFont());
 		name.setForeground(fight.getKind() == TargetKind.PLAYER ? CombatLogOverlay.PLAYER_COLOR : Color.WHITE);
 

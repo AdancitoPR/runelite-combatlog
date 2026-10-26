@@ -35,7 +35,8 @@ public final class Fight
 	Fight(long id, String name, TargetKind kind, @Nullable Integer npcId, @Nullable Integer npcIndex, int tick)
 	{
 		this.id = id;
-		this.name = Names.plain(name);
+		String plain = Names.plain(name);
+		this.name = DoomDelve.displayName(plain, npcId);
 		this.kind = kind;
 		this.npcId = npcId;
 		this.npcIndex = npcIndex;
@@ -279,6 +280,37 @@ public final class Fight
 				continue;
 			}
 			attacks.set(i, swing.withWeapon(weaponItemId, speed));
+		}
+	}
+
+	void reopen()
+	{
+		closed = false;
+		killed = false;
+	}
+
+	/** Pulls another form of this same delve onto this fight. */
+	void takeFrom(Fight other)
+	{
+		reopen();
+		if (other.startTick > 0 && (startTick == 0 || other.startTick < startTick))
+		{
+			startTick = other.startTick;
+		}
+		for (HitRecord hit : other.hits)
+		{
+			addHit(hit.withMeta(hit.getTick(), id, hit.getAttackId(), hit.getWeaponItemId(), hit.isSpecial(), hit.getSource(), hit.getOverkill(), hit.getSequence()));
+		}
+		for (AttackSwing swing : other.attacks)
+		{
+			addAttack(swing);
+		}
+		for (Integer tick : other.phaseBreaks)
+		{
+			if (!phaseBreaks.contains(tick))
+			{
+				phaseBreaks.add(tick);
+			}
 		}
 	}
 

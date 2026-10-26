@@ -1,16 +1,45 @@
 package com.combatlog;
 
+import java.util.Locale;
 import javax.annotation.Nullable;
 import net.runelite.api.gameval.NpcID;
 
 /**
  * The Doom of Mokhaiotl uses one NPC id at every depth. The delve number is the
- * current-level player variable, snapshotted onto the fight.
+ * current-level player variable, snapshotted onto the fight. Every form is the
+ * same monster.
  */
 final class DoomDelve
 {
+	static final String DISPLAY_NAME = "Doom of Mokhaiotl";
+
 	private DoomDelve()
 	{
+	}
+
+	/** Normal, shielded, and burrowed forms share one log name. */
+	static String displayName(@Nullable String name, @Nullable Integer npcId)
+	{
+		if (isDoom(npcId) || named(name))
+		{
+			return DISPLAY_NAME;
+		}
+		return name;
+	}
+
+	static boolean named(@Nullable String name)
+	{
+		if (name == null)
+		{
+			return false;
+		}
+		String plain = Names.plain(name);
+		if (plain == null)
+		{
+			return false;
+		}
+		plain = plain.toLowerCase(Locale.ROOT);
+		return plain.equals("doom of mokhaiotl") || plain.startsWith("doom of mokhaiotl ");
 	}
 
 	static boolean isDoom(@Nullable Integer npcId)
@@ -27,10 +56,16 @@ final class DoomDelve
 		return npcId != null && (npcId == NpcID.DOM_BOSS || npcId == NpcID.DOM_BOSS_SHIELDED);
 	}
 
-	/** The underground car phase. It may be its own log. */
+	/** The underground car phase. From delve 5 it belongs to that delve's log. */
 	static boolean burrowed(@Nullable Integer npcId)
 	{
 		return npcId != null && npcId == NpcID.DOM_BOSS_BURROWED;
+	}
+
+	/** Burrowed Doom first appears on delve 5, and shares that delve's fight. */
+	static boolean burrowJoins(int level)
+	{
+		return level >= 5;
 	}
 
 	/**

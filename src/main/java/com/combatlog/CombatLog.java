@@ -155,6 +155,19 @@ public class CombatLog
 		}
 	}
 
+	public boolean foldDoom()
+	{
+		synchronized (lock)
+		{
+			if (!fights.foldDoomLevels())
+			{
+				return false;
+			}
+			version++;
+			return true;
+		}
+	}
+
 	public void finishDoomSurface(int tick, boolean killed)
 	{
 		synchronized (lock)

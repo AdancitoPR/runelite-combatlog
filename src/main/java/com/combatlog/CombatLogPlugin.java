@@ -122,10 +122,19 @@ public class CombatLogPlugin extends Plugin
 	private final SpecMarker specMarker = new SpecMarker();
 	private final Map<Integer, int[]> lastHealth = new HashMap<>();
 	private final Map<Integer, Integer> quietDespawns = new HashMap<>();
-	/** Ticks with no surface Doom before that delve's log is closed. */
+	/** Ticks with no Doom at all before that delve's log is closed. */
 	private static final int DOOM_ABSENT_TICKS = 8;
+	/**
+	 * Delve 5 and deeper dig down and come back. Delve 6 runs three car slams,
+	 * and Doom can be off the field between them for longer than the delve 5 dig.
+	 */
+	private static final int DOOM_BURROW_WAIT_TICKS = 80;
 	private int doomAbsentTick = -1;
 	private boolean doomDied;
+	/** The descent into the car phase was already kept out of lost ticks. */
+	private boolean doomBurrowGapNoted;
+	/** The surface boss is gone and the same delve may still come back. */
+	private boolean doomLeftSurface;
 	private int meleePunishBonus;
 	private int meleePunishUntil = -1;
 	/** Ticks after the interrupting melee hit, when the bonus splats can land. */
@@ -213,6 +222,8 @@ public class CombatLogPlugin extends Plugin
 		quietDespawns.clear();
 		doomAbsentTick = -1;
 		doomDied = false;
+		doomBurrowGapNoted = false;
+		doomLeftSurface = false;
 		incomingByTick.clear();
 		incomingStyles.clear();
 		incomingWeapons.clear();
@@ -340,8 +351,8 @@ public class CombatLogPlugin extends Plugin
 		{
 			int scale = npc.getHealthScale();
 			int ratio = npc.getHealthRatio();
-			// Shield breaks and phase changes zero this bar without ending the delve.
-			if (scale > 0 && ratio == 0 && !DoomDelve.surface(npcId(npc)))
+			// Shield breaks and the car phase zero this bar without ending the delve.
+			if (scale > 0 && ratio == 0 && !DoomDelve.isDoom(npcId(npc)))
 			{
 				combatLog.closeLife(npc.getIndex(), tick);
 			}
@@ -495,7 +506,7 @@ public class CombatLogPlugin extends Plugin
 		NPC npc = event.getNpc();
 		int index = npc.getIndex();
 		int tick = client.getTickCount();
-		if (DoomDelve.surface(npcId(npc)))
+		if (DoomDelve.isDoom(npcId(npc)))
 		{
 			if (npc.isDead() || (npc.getHealthScale() > 0 && npc.getHealthRatio() == 0))
 			{
@@ -1500,41 +1511,58 @@ public class CombatLogPlugin extends Plugin
 	 * kept, so a later descent does not relabel this kill.
 	 */
 	/**
-	 * Keeps one surface log per delve. The shield and a respawn after burrowing
-	 * join the fight already open for this level. Burrowed stays separate.
+	 * Keeps one log per delve. The shield, the burrowed form from delve 5, and
+	 * a respawn after the car phase join the fight already open for this level.
+	 * Time with any Doom form present does not count toward closing the log.
 	 */
 	private void trackDoom(int tick)
 	{
 		int level = DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP));
 		boolean surfaceHere = false;
 		boolean doomHere = false;
-		boolean surfaceHealthy = false;
+		boolean healthy = false;
+		boolean burrowedHere = false;
 		for (NPC npc : npcs())
 		{
 			Integer id = npcId(npc);
+			boolean alive = npc.getHealthScale() <= 0 || npc.getHealthRatio() > 0;
 			if (DoomDelve.surface(id))
 			{
 				surfaceHere = true;
 				doomHere = true;
-				if (npc.getHealthScale() <= 0 || npc.getHealthRatio() > 0)
-				{
-					surfaceHealthy = true;
-				}
+				healthy |= alive;
 				combatLog.joinDoomSurface(npc.getIndex(), level);
 			}
-			else if (DoomDelve.burrowed(id))
+			else if (DoomDelve.burrowed(id) && DoomDelve.burrowJoins(level))
 			{
 				doomHere = true;
+				burrowedHere = true;
+				healthy |= alive;
+				combatLog.joinDoomSurface(npc.getIndex(), level);
 			}
+		}
+		if (burrowedHere && !doomBurrowGapNoted)
+		{
+			combatLog.resumeDoomSurface(tick);
+			doomBurrowGapNoted = true;
 		}
 		if (surfaceHere)
 		{
-			if (doomAbsentTick >= 0)
+			if (doomLeftSurface)
 			{
 				combatLog.resumeDoomSurface(tick);
 			}
+			doomLeftSurface = false;
+			doomBurrowGapNoted = false;
+		}
+		else if (doomHere || combatLog.hasOpenDoomSurface())
+		{
+			doomLeftSurface = true;
+		}
+		if (doomHere)
+		{
 			doomAbsentTick = -1;
-			if (surfaceHealthy)
+			if (healthy)
 			{
 				doomDied = false;
 			}
@@ -1543,21 +1571,37 @@ public class CombatLogPlugin extends Plugin
 		{
 			doomAbsentTick = tick;
 		}
-		if (!doomHere && doomAbsentTick >= 0 && tick - doomAbsentTick >= DOOM_ABSENT_TICKS)
+		int wait = DoomDelve.burrowJoins(level) ? DOOM_BURROW_WAIT_TICKS : DOOM_ABSENT_TICKS;
+		if (!doomHere && doomAbsentTick >= 0 && tick - doomAbsentTick >= wait)
 		{
 			combatLog.finishDoomSurface(tick, doomDied);
 			doomAbsentTick = -1;
 			doomDied = false;
+			doomLeftSurface = false;
+			doomBurrowGapNoted = false;
+		}
+		if (combatLog.foldDoom())
+		{
+			queueRefresh();
 		}
 	}
 
 	private void joinDoomSurface(@Nullable Integer npcIndex, @Nullable Integer npcId)
 	{
-		if (!DoomDelve.surface(npcId))
+		if (DoomDelve.surface(npcId))
+		{
+			combatLog.joinDoomSurface(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+			return;
+		}
+		if (!DoomDelve.burrowed(npcId))
 		{
 			return;
 		}
-		combatLog.joinDoomSurface(npcIndex, DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP)));
+		int level = DoomDelve.level(client.getVarpValue(VarPlayerID.DOM_CURRENT_LEVEL_TEMP));
+		if (DoomDelve.burrowJoins(level))
+		{
+			combatLog.joinDoomSurface(npcIndex, level);
+		}
 	}
 
 	private void noteDoomDelve(@Nullable Integer npcIndex, @Nullable Integer npcId)
